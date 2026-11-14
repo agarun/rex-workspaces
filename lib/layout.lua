@@ -11,16 +11,36 @@ function M.block(L, p)
   })
 end
 
-function M.panes(L, panes, split)
-  local pair = split == "down" and L.vertical or L.horizontal
-  local function build(i)
-    local b = M.block(L, panes[i])
-    if i == #panes then
-      return b
-    end
-    return pair(1 / (#panes - i + 1), b, build(i + 1))
+function M.grid_rows(n)
+  local cols = math.ceil(math.sqrt(n))
+  local rows = {}
+  for first = 1, n, cols do
+    rows[#rows + 1] = math.min(cols, n - first + 1)
   end
-  return build(1)
+  return rows
+end
+
+local function chain(pair, items, from, to)
+  if from == to then
+    return items[from]
+  end
+  return pair(1 / (to - from + 1), items[from], chain(pair, items, from + 1, to))
+end
+
+function M.panes(L, panes, split)
+  local built = {}
+  for i, p in ipairs(panes) do
+    built[i] = p.panes and M.panes(L, p.panes, p.split) or M.block(L, p)
+  end
+  if split ~= "grid" then
+    return chain(split == "down" and L.vertical or L.horizontal, built, 1, #built)
+  end
+  local rows, first = {}, 1
+  for i, count in ipairs(M.grid_rows(#built)) do
+    rows[i] = chain(L.horizontal, built, first, first + count - 1)
+    first = first + count
+  end
+  return chain(L.vertical, rows, 1, #rows)
 end
 
 function M.float_bounds(i, n)

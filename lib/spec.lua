@@ -8,10 +8,11 @@ M.DEFAULT_STOP_TIMEOUT = 5
 M.HOOKS = { "before_start", "after_start", "before_stop", "after_stop" }
 
 local SERVERS_IN = { float = true, tab = true }
-local SPLITS = { right = true, down = true }
+local SPLITS = { right = true, down = true, grid = true }
 local STOPS = { close = true, interrupt = true, leave = true }
 local STOP_HELP = 'must be "close", "interrupt" or "leave"'
 M.STOP_DEFAULT = { servers = "close", panes = "leave" }
+local SPLIT_HELP = 'must be "right", "down" or "grid"'
 
 M.UNTITLED = "untitled"
 
@@ -158,6 +159,40 @@ local function servers(raw, where, base, home, errs)
   return out
 end
 
+local function split_of(raw, where, errs)
+  local split = raw.split or "right"
+  if not SPLITS[split] then
+    report(errs, where .. ".split", SPLIT_HELP)
+    return "right"
+  end
+  return split
+end
+
+local node
+
+local function children(raw, where, base, home, errs)
+  local out = {}
+  for j, p in ipairs(list(errs, where .. ".panes", raw.panes)) do
+    out[#out + 1] = node(p, where .. ".panes[" .. j .. "]", base, home, errs)
+  end
+  return out
+end
+
+node = function(raw, where, base, home, errs)
+  if type(raw) ~= "table" or raw.panes == nil then
+    return pane(raw, where, base, home, errs)
+  end
+  if raw.label ~= nil or raw.cmd ~= nil or raw.cwd ~= nil or raw.stop ~= nil then
+    report(errs, where, "a group has only split and panes; put label, cwd, cmd and stop on its panes")
+  end
+  local g = { split = split_of(raw, where, errs), panes = children(raw, where, base, home, errs) }
+  if #g.panes == 0 then
+    report(errs, where .. ".panes", "needs at least one pane")
+    return nil
+  end
+  return g
+end
+
 local function tab(raw, i, where, base, home, errs)
   if type(raw) ~= "table" then
     report(errs, where, "must be an object")
@@ -165,16 +200,9 @@ local function tab(raw, i, where, base, home, errs)
   end
   local t = {
     name = typed(errs, where .. ".name", raw.name, "string") or ("tab " .. i),
-    split = raw.split or "right",
-    panes = {},
+    split = split_of(raw, where, errs),
+    panes = children(raw, where, base, home, errs),
   }
-  if not SPLITS[t.split] then
-    report(errs, where .. ".split", 'must be "right" or "down"')
-    t.split = "right"
-  end
-  for j, p in ipairs(list(errs, where .. ".panes", raw.panes)) do
-    t.panes[#t.panes + 1] = pane(p, where .. ".panes[" .. j .. "]", base, home, errs)
-  end
   if #t.panes == 0 then
     t.panes[1] = { label = t.name, cwd = base }
   end

@@ -24,8 +24,8 @@ pub enum Act {
     RemoveServer(usize),
     AddTab,
     RemoveTab(usize),
-    AddPane(usize),
-    RemovePane(usize, usize),
+    AddPane(String),
+    RemovePane(String, usize),
     Use(usize),
     Suggest,
 }
@@ -299,50 +299,10 @@ impl Editor {
             );
             let ts = stem(false);
             rows.push(
-                Row::choice(
-                    "Layout",
-                    format!("{p}/split"),
-                    &["right", "down"],
-                    "Panes side by side, or stacked",
-                )
-                .tree(&format!("{ts}{}", branch(false))),
+                Row::choice("Layout", format!("{p}/split"), SPLITS, SPLIT_HINT)
+                    .tree(&format!("{ts}{}", branch(false))),
             );
-            for n in 0..spec::len(s, &format!("{p}/panes")) {
-                let q = format!("{p}/panes/{n}");
-                rows.push(
-                    Row::text(
-                        "Pane",
-                        format!("{q}/label"),
-                        "Name it",
-                        "Ctrl+X removes this pane",
-                    )
-                    .tree(&format!("{ts}{}", branch(false)))
-                    .removes(Act::RemovePane(t, n)),
-                );
-                let ps = format!("{ts}{}", stem(false));
-                rows.push(
-                    Row::folder(
-                        "Folder",
-                        format!("{q}/cwd"),
-                        Browse::Relative,
-                        "Workspace folder",
-                    )
-                    .tree(&format!("{ps}{}", branch(false))),
-                );
-                rows.push(
-                    Row::text(
-                        "Command",
-                        format!("{q}/cmd"),
-                        "Just a shell",
-                        "Typed in when the pane opens",
-                    )
-                    .tree(&format!("{ps}{}", branch(true))),
-                );
-            }
-            rows.push(
-                Row::action("+ Add pane", Act::AddPane(t), "")
-                    .tree(&format!("{ts}{}", branch(true))),
-            );
+            pane_rows(s, &mut rows, &format!("{p}/panes"), ts);
         }
         rows.push(
             Row::action(
@@ -705,13 +665,12 @@ impl Editor {
             Act::RemoveTab(t) => {
                 spec::list(&mut self.spec, "/tabs").remove(t);
             }
-            Act::AddPane(t) => {
-                let ptr = format!("/tabs/{t}/panes");
+            Act::AddPane(ptr) => {
                 let n = spec::len(&self.spec, &ptr) + 1;
                 spec::list(&mut self.spec, &ptr).push(json!({ "label": format!("pane {n}") }));
             }
-            Act::RemovePane(t, n) => {
-                spec::list(&mut self.spec, &format!("/tabs/{t}/panes")).remove(n);
+            Act::RemovePane(ptr, n) => {
+                spec::list(&mut self.spec, &ptr).remove(n);
             }
             Act::Use(k) => {
                 let Some(c) = self.detected.get(k).cloned() else {
@@ -950,6 +909,57 @@ impl Editor {
             hits.add(tag, target);
         }
     }
+}
+
+const SPLITS: &[&str] = &["right", "down", "grid"];
+const SPLIT_HINT: &str = "Panes side by side, stacked, or in a grid";
+
+fn pane_rows(s: &Value, rows: &mut Vec<Row>, list: &str, indent: &str) {
+    for n in 0..spec::len(s, list) {
+        let q = format!("{list}/{n}");
+        let inner = format!("{indent}{}", stem(false));
+        if s.pointer(&format!("{q}/panes")).is_some() {
+            rows.push(
+                Row::choice("Group", format!("{q}/split"), SPLITS, SPLIT_HINT)
+                    .tree(&format!("{indent}{}", branch(false)))
+                    .removes(Act::RemovePane(list.into(), n)),
+            );
+            pane_rows(s, rows, &format!("{q}/panes"), &inner);
+            continue;
+        }
+        rows.push(
+            Row::text(
+                "Pane",
+                format!("{q}/label"),
+                "Name it",
+                "Ctrl+X removes this pane",
+            )
+            .tree(&format!("{indent}{}", branch(false)))
+            .removes(Act::RemovePane(list.into(), n)),
+        );
+        rows.push(
+            Row::folder(
+                "Folder",
+                format!("{q}/cwd"),
+                Browse::Relative,
+                "Workspace folder",
+            )
+            .tree(&format!("{inner}{}", branch(false))),
+        );
+        rows.push(
+            Row::text(
+                "Command",
+                format!("{q}/cmd"),
+                "Just a shell",
+                "Typed in when the pane opens",
+            )
+            .tree(&format!("{inner}{}", branch(true))),
+        );
+    }
+    rows.push(
+        Row::action("+ Add pane", Act::AddPane(list.into()), "")
+            .tree(&format!("{indent}{}", branch(true))),
+    );
 }
 
 fn segments(options: &[&str], selected: usize) -> Vec<Span<'static>> {

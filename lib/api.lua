@@ -171,20 +171,7 @@ function M.new(rex)
     return f ~= nil
   end
 
-  function api.find(root, names, depth)
-    local argv = { "find", root, "-maxdepth", tostring(depth) }
-    local pruned = { "node_modules", ".git", "target", "dist", "build", ".venv", "vendor" }
-    argv[#argv + 1] = "("
-    for i, name in ipairs(pruned) do
-      if i > 1 then
-        argv[#argv + 1] = "-o"
-      end
-      argv[#argv + 1] = "-name"
-      argv[#argv + 1] = name
-    end
-    argv[#argv + 1] = ")"
-    argv[#argv + 1] = "-prune"
-    argv[#argv + 1] = "-o"
+  local function any_name(argv, names)
     argv[#argv + 1] = "("
     for i, name in ipairs(names) do
       if i > 1 then
@@ -194,6 +181,16 @@ function M.new(rex)
       argv[#argv + 1] = name
     end
     argv[#argv + 1] = ")"
+  end
+
+  local PRUNED = { "node_modules", ".git", "target", "dist", "build", ".venv", "vendor" }
+
+  function api.find(root, names, depth)
+    local argv = { "find", root, "-mindepth", "1", "-maxdepth", tostring(depth) }
+    any_name(argv, PRUNED)
+    argv[#argv + 1] = "-prune"
+    argv[#argv + 1] = "-o"
+    any_name(argv, names)
     argv[#argv + 1] = "-print"
     local r = rex.exec(argv, { timeout = 10 })
     local files = {}
@@ -204,7 +201,14 @@ function M.new(rex)
     return files
   end
 
+  local function resolve(path)
+    local r = rex.exec({ "realpath", path }, { timeout = 5 })
+    local real = r and r.ok and (r.stdout or ""):match("^[^\n]+")
+    return real or path
+  end
+
   function api.write_file(path, text)
+    path = resolve(path)
     local tmp = path .. ".tmp"
     local f, err = io.open(tmp, "w")
     if not f then

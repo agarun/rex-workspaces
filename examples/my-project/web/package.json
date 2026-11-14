@@ -1,0 +1,8 @@
+{
+  "name": "my-project-web",
+  "private": true,
+  "scripts": {
+    "dev": "sh ../serve.sh web 4200",
+    "build": "echo built web"
+  }
+}

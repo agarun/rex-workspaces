@@ -101,7 +101,7 @@ function M.block_share(view, block_id)
   return nil
 end
 
-M.UI = { min_rows = 10, cols = 108, chrome_rows = 3, max_w = 0.9, max_h = 0.85, min_w = 0.5 }
+M.UI = { min_rows = 16, cols = 108, chrome_rows = 3, max_w = 0.9, max_h = 0.85, min_w = 0.5 }
 
 M.EDIT_ROWS = 34
 
@@ -113,14 +113,14 @@ end
 function M.fit(win_cols, win_rows, rows)
   local u = M.UI
   local h = height(win_rows, rows)
-  local tallest = math.max(h, height(win_rows, M.EDIT_ROWS))
   local w = math.min(u.max_w, math.max(u.min_w, u.cols / win_cols))
-  return { (1 - w) / 2, (1 - tallest) / 2, w, h }
+  return { (1 - w) / 2, (1 - h) / 2, w, h }
 end
 
 function M.list_rows(count, most_servers)
   local servers = most_servers > 0 and most_servers + 1 or 0
-  return math.max(count, 1) * 3 + servers + 5
+  -- The button bar wraps to two lines in a narrow window.
+  return math.max(count, 1) * 3 + servers + 7
 end
 
 function M.windows(L, ws)

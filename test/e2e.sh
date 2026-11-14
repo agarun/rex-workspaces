@@ -322,8 +322,8 @@ else
   wait_screen "+ web build" && ok "see suggestions lists commands" || no "see suggestions lists commands" "$(screen | head -20)"
   type_in $'\x13'
   wait_screen "Saved beta" && ok "save keeps the form open" || no "save keeps the form open" "$(screen | tail -4)"
-  jq -e --argjson a "$list_bounds" --argjson b "$edit_bounds" -n '$b[3] > $a[3] and $b[1] == $a[1]' >/dev/null &&
-    ok "editor grows the window downward" || no "editor grows the window downward" "$list_bounds -> $edit_bounds"
+  jq -e --argjson a "$list_bounds" --argjson b "$edit_bounds" -n '$b[3] >= $a[3] and (($b[1] + $b[3] / 2 - 0.5) | fabs) < 1e-6' >/dev/null &&
+    ok "editor window is centered and no shorter" || no "editor window is centered and no shorter" "$list_bounds -> $edit_bounds"
   R send-key -s "$home_sid" -b "$pane" escape
   wait_screen "Open  enter" && ok "esc goes back" || no "esc goes back" "$(screen | head -3)"
   eq "list shrinks the window back" "$(bounds)" "$list_bounds"

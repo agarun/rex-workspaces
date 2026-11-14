@@ -8,6 +8,7 @@
       "switch": true,
       "servers_in": "float",
       "stop_timeout": 5,
+      "stop": { "servers": "close", "panes": "interrupt" },
       "servers": [
         { "label": "api", "cwd": "api", "cmd": "make dev", "minimized": true },
         { "label": "web", "cwd": "web", "cmd": "npm run dev", "minimized": false, "bounds": [0.6, 0.05, 0.38, 0.3] }
@@ -15,18 +16,26 @@
       "tabs": [
         {
           "name": "agents",
-          "split": "right",
+          "split": "grid",
           "panes": [
             { "label": "api", "cwd": "api" },
-            { "label": "web", "cwd": "web" }
+            { "label": "web", "cwd": "web" },
+            { "label": "api tests", "cwd": "api" },
+            { "label": "shell", "stop": "leave" }
           ]
         },
         {
           "name": "checks",
-          "split": "down",
+          "split": "right",
           "panes": [
             { "label": "tests", "cwd": "api", "cmd": "make test" },
-            { "label": "files", "cmd": "ls" }
+            {
+              "split": "down",
+              "panes": [
+                { "label": "files", "cmd": "ls" },
+                { "label": "web", "cwd": "web" }
+              ]
+            }
           ]
         }
       ],

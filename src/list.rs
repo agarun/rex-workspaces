@@ -38,10 +38,10 @@ fn state(ws: &Value) -> (Span<'static>, String) {
     let total = servers(ws).len();
     let up = ws["servers_up"].as_u64().unwrap_or(0) as usize;
     if !running(ws) {
-        return (Span::styled("○", faint()), "Stopped".into());
+        return (Span::styled("○", faint()), "stopped".into());
     }
     if total == 0 {
-        return (Span::styled("●", Style::new().fg(p.success)), "Open".into());
+        return (Span::styled("●", Style::new().fg(p.success)), "open".into());
     }
     let color = if up == total { p.success } else { p.warning };
     (
@@ -107,23 +107,10 @@ fn card_height(ws: &Value, selected: bool) -> u16 {
     }
 }
 
-fn draw_card(
-    f: &mut Frame,
-    rect: Rect,
-    ws: &Value,
-    index: usize,
-    selected: bool,
-    hovered: bool,
-    home: &str,
-) {
+fn draw_card(f: &mut Frame, rect: Rect, ws: &Value, selected: bool, hovered: bool, home: &str) {
     let p = palette();
     let (dot, status) = state(ws);
     let name = ws["name"].as_str().unwrap_or("?").to_string();
-    let number = if index < 9 {
-        format!("{} ", index + 1)
-    } else {
-        String::new()
-    };
     let border = match (selected, hovered) {
         (true, _) => p.accent,
         (false, true) => p.muted,
@@ -138,11 +125,7 @@ fn draw_card(
     let mut title = if expanded {
         vec![Span::raw(" ")]
     } else {
-        vec![
-            Span::styled(format!(" {number}"), faint()),
-            dot,
-            Span::raw(" "),
-        ]
+        vec![Span::raw(" "), dot, Span::raw(" ")]
     };
     title.extend([Span::styled(name, name_style), Span::raw(" ")]);
     if let Some(key) = ws["key"].as_str() {
@@ -261,7 +244,7 @@ pub fn render(f: &mut Frame, area: Rect, view: View, hits: &mut Hits, hover: Opt
         }
         let rect = Rect::new(area.x, y, area.width, height);
         let hovered = hover == Some(Target::Row(i));
-        draw_card(f, rect, ws, i, selected, hovered, view.home);
+        draw_card(f, rect, ws, selected, hovered, view.home);
         hits.add(rect, Target::Row(i));
         y += height;
     }

@@ -557,9 +557,8 @@ impl App {
     fn cycle_button(&mut self, delta: i32) {
         let buttons = list::buttons(self.current(), !self.workspaces.is_empty());
         let n = buttons.len() as i32;
-        let mut i = self
-            .button_focus
-            .map_or(if delta > 0 { -1 } else { n }, |b| b as i32);
+        let default = buttons.iter().position(|(_, b)| b.enabled).unwrap_or(0);
+        let mut i = self.button_focus.unwrap_or(default) as i32;
         for _ in 0..n {
             i = (i + delta).rem_euclid(n);
             if buttons[i as usize].1.enabled {
@@ -622,12 +621,6 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
             KeyCode::Home | KeyCode::Char('g') => self.move_selection(-(i32::MAX / 2)),
             KeyCode::End | KeyCode::Char('G') => self.move_selection(i32::MAX / 2),
-            KeyCode::Char(c @ '1'..='9') => {
-                let i = c as usize - '1' as usize;
-                if i < self.workspaces.len() {
-                    self.selected = i;
-                }
-            }
             KeyCode::Char('/' | 'f') => self.list_action("filter"),
             KeyCode::Enter | KeyCode::Char('o') => self.list_action("open"),
             KeyCode::Char('s') => self.list_button(1),

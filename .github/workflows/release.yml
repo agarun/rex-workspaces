@@ -12,13 +12,13 @@ jobs:
     strategy:
       matrix:
         include:
-          - { os: macos-14, target: aarch64-apple-darwin }
-          - { os: macos-14, target: x86_64-apple-darwin }
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          - { os: macos-26, target: aarch64-apple-darwin }
+          - { os: macos-26, target: x86_64-apple-darwin }
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-musl }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -26,20 +26,20 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - run: cargo build --release --locked --target ${{ matrix.target }}
       - run: packaging/package.sh ${{ matrix.target }} target/${{ matrix.target }}/release/rex-workspaces dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.target }}
           path: dist/rex-workspaces-${{ matrix.target }}.tar.gz
 
   release:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       TAP: agarun/homebrew-tap
       HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
@@ -49,7 +49,7 @@ jobs:
       - if: env.HOMEBREW_TAP_TOKEN == ''
         run: echo "::notice::HOMEBREW_TAP_TOKEN is not set; skipping the tap update"
       - if: env.HOMEBREW_TAP_TOKEN != ''
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ env.TAP }}
           token: ${{ env.HOMEBREW_TAP_TOKEN }}

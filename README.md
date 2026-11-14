@@ -17,6 +17,7 @@ Installation will update your Rex `init.lua` and download the latest release of 
 ### Homebrew
 
 ```sh
+brew trust agarun/tap
 brew install agarun/tap/rex-workspaces
 rex-workspaces install
 ```

@@ -23,6 +23,7 @@ pub enum Start {
     List,
     Edit(String),
     New(String),
+    Capture(String),
 }
 
 enum Screen {
@@ -87,6 +88,7 @@ impl App {
             }
             Start::Edit(name) => app.pending_edit = Some(name),
             Start::New(dir) => app.new_workspace(dir),
+            Start::Capture(session) => app.capture(session),
         }
         app
     }
@@ -233,6 +235,13 @@ impl App {
                     }
                 }
             },
+            Done::Captured(result) => match result {
+                Ok(v) => {
+                    self.busy = None;
+                    self.open_capture(&v);
+                }
+                Err(e) => self.fail(e),
+            },
             Done::Detected { root, result } => {
                 let home = &self.home;
                 let Screen::Edit(ed) = &mut self.screen else {
@@ -338,6 +347,30 @@ impl App {
         }
         self.screen = Screen::Edit(Box::new(Editor::new(name.clone(), None, spec)));
         self.detect(&dir, &name);
+    }
+
+    fn capture(&mut self, session: String) {
+        self.busy = Some("Reading the session…".into());
+        self.status = None;
+        self.spawn(Job::Capture { session });
+    }
+
+    fn open_capture(&mut self, v: &Value) {
+        let name = v["name"].as_str().unwrap_or_default().to_string();
+        let spec = if v["spec"].is_object() {
+            v["spec"].clone()
+        } else {
+            json!({})
+        };
+        let root = spec::text(&spec, "/root");
+        if matches!(self.screen, Screen::List) && self.loaded {
+            self.fit_window("edit");
+        }
+        let mut ed = Editor::new(name.clone(), None, spec);
+        ed.fresh = false;
+        ed.message = Some((capture_message(v), false));
+        self.screen = Screen::Edit(Box::new(ed));
+        self.detect(&root, &name);
     }
 
     fn save(&mut self) {
@@ -467,6 +500,10 @@ impl App {
                     .unwrap_or_default();
                 self.new_workspace(dir);
             }
+            "capture" => match std::env::var("REX_SESSION") {
+                Ok(session) if !session.is_empty() => self.capture(session),
+                _ => self.fail("Open this window in Rex to save a session".into()),
+            },
             "filter" => self.filter = Some(self.filter.take().unwrap_or_default()),
             "quit" => self.quit = true,
             _ => {}
@@ -598,6 +635,7 @@ impl App {
             KeyCode::Char('c') => self.list_action("close"),
             KeyCode::Char('e') => self.list_action("edit"),
             KeyCode::Char('n') => self.list_action("new"),
+            KeyCode::Char('w') => self.list_action("capture"),
             KeyCode::Char('q') | KeyCode::Esc => self.quit = true,
             _ => {}
         }
@@ -782,6 +820,18 @@ fn found_message(found: usize) -> Option<String> {
         0 => None,
         1 => Some("Found 1 dev server. Check it, then save.".into()),
         n => Some(format!("Found {n} dev servers. Check them, then save.")),
+    }
+}
+
+fn capture_message(v: &Value) -> String {
+    let notes: Vec<&str> = v["notes"]
+        .as_array()
+        .map(|n| n.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    if notes.is_empty() {
+        "Check the name, tabs and panes, then save.".into()
+    } else {
+        notes.join(" ")
     }
 }
 

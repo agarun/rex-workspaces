@@ -56,6 +56,14 @@ function M.is_busy(api, sid, block_id)
   return busy(p, depth)
 end
 
+function M.command(api, sid, block_id)
+  local p, _, depth = read(api, sid, block_id)
+  if not busy(p, depth) then
+    return nil, false
+  end
+  return p.foreground.pid and api.args(p.foreground.pid), true
+end
+
 function M.interrupt(api, sid, items, timeout)
   local waiting, sent = {}, {}
   for _, it in ipairs(items) do
@@ -76,6 +84,15 @@ function M.interrupt(api, sid, items, timeout)
     end
   end
   return sent, waiting
+end
+
+function M.cwd(api, sid, block_id)
+  local p, chain, depth = read(api, sid, block_id)
+  if p == nil then
+    return nil
+  end
+  local shell = depth and chain[depth] or p.foreground
+  return shell.cwd or p.foreground.cwd
 end
 
 return M

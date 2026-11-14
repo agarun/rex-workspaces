@@ -1,3 +1,4 @@
+local capture = require("rex-workspaces.lib.capture")
 local config = require("rex-workspaces.lib.config")
 local detect = require("rex-workspaces.lib.detect")
 local layout = require("rex-workspaces.lib.layout")
@@ -5,6 +6,7 @@ local lifecycle = require("rex-workspaces.lib.lifecycle")
 local path = require("rex-workspaces.lib.path")
 local spec = require("rex-workspaces.lib.spec")
 local store = require("rex-workspaces.lib.store")
+local ui_labels = require("rex-workspaces.lib.ui")
 local worktree = require("rex-workspaces.lib.worktree")
 
 local M = {}
@@ -130,6 +132,52 @@ function M.new(rex, api, ui, settings)
     return saved
   end
 
+  local function session_id(ctx, wanted)
+    if wanted == nil then
+      return ctx.session_id or error("no session given and no session is focused", 0)
+    end
+    for _, s in ipairs(api.sessions()) do
+      if s.session_id == wanted or s.label == wanted then
+        return s.session_id
+      end
+    end
+    error('no session named "' .. wanted .. '"', 0)
+  end
+
+  local function draft(sid)
+    local cfg = self.load()
+    local label
+    for _, s in ipairs(api.sessions()) do
+      if s.session_id == sid then
+        label = s.label
+      end
+    end
+    local ws = label and cfg.by_name[label]
+    return capture.session(api, sid, {
+      label = label,
+      home = settings.home,
+      ws = ws,
+      raw = ws and cfg.raw[label],
+      root = ws and ws.root,
+      taken = cfg.raw,
+      skip = { [ui_labels.LABEL] = true, [ui_labels.EDIT_LABEL] = true },
+    })
+  end
+
+  local function save_session(ctx, args)
+    local sid = session_id(ctx, args.session)
+    if args.save == false then
+      return draft(sid)
+    end
+    if args.name == nil and ctx.session_id and ui.show(ctx, { "capture", sid }, nil, list_rows()) then
+      return { shown = true }
+    end
+    local d = draft(sid)
+    local saved = store.save(files, args.name or d.name, d.spec)
+    saved.notes = d.notes
+    return saved
+  end
+
   local function define(def)
     def.category = CATEGORY
     rex.action(def)
@@ -181,6 +229,15 @@ function M.new(rex, api, ui, settings)
       description = "Save the focused pane's folder as a workspace, with the dev servers it finds.",
       args = { name = "string?", root = "string?", edit = "boolean?" },
       run = add,
+    })
+
+    define({
+      name = "workspace_capture",
+      title = "Workspace: Save This Session…",
+      description = "Save the tabs, panes and folders of a session as a new workspace.",
+      keywords = "workspace capture snapshot save session layout",
+      args = { session = "string?", name = "string?", save = "boolean?" },
+      run = save_session,
     })
 
     define({

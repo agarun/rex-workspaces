@@ -101,7 +101,7 @@ function M.block_share(view, block_id)
   return nil
 end
 
-M.UI = { min_rows = 10, cols = 96, chrome_rows = 3, max_w = 0.9, max_h = 0.85, min_w = 0.5 }
+M.UI = { min_rows = 10, cols = 108, chrome_rows = 3, max_w = 0.9, max_h = 0.85, min_w = 0.5 }
 
 M.EDIT_ROWS = 34
 

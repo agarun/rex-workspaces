@@ -92,6 +92,7 @@ pub fn buttons(selected: Option<&Value>, any: bool) -> Vec<(&'static str, Button
             Button::new("Edit", "e", Tone::Normal).enabled(selected.is_some()),
         ),
         ("new", Button::new("New", "n", Tone::Normal)),
+        ("capture", Button::new("Save as new", "w", Tone::Normal)),
         (
             "filter",
             Button::new("Filter", "/", Tone::Normal).enabled(any),

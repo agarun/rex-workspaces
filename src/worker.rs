@@ -21,6 +21,9 @@ pub enum Job {
         root: String,
         name: String,
     },
+    Capture {
+        session: String,
+    },
 }
 
 pub enum Done {
@@ -42,6 +45,7 @@ pub enum Done {
         root: String,
         result: Result<Value, String>,
     },
+    Captured(Result<Value, String>),
 }
 
 fn reloaded(result: Result<Value, String>) -> Result<Option<String>, String> {
@@ -72,6 +76,7 @@ fn run(job: Job) -> Done {
             let result = rex::detect(&root, &name);
             Done::Detected { root, result }
         }
+        Job::Capture { session } => Done::Captured(rex::capture(&session)),
     }
 }
 

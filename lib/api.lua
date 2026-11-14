@@ -223,6 +223,12 @@ function M.new(rex)
     return r ~= nil and r.ok == true
   end
 
+  function api.args(pid)
+    local r = rex.exec({ "ps", "-o", "args=", "-p", tostring(pid) }, { timeout = 5 })
+    local line = r and r.ok and (r.stdout or ""):match("^%s*([^\n]-)%s*\n?$")
+    return (line and line ~= "") and line or nil
+  end
+
   function api.write_file(path, text)
     path = resolve(path)
     local tmp = path .. ".tmp"

@@ -71,6 +71,14 @@ pub fn detect(root: &str, name: &str) -> Result<Value, String> {
     action("workspace_detect", json!({ "root": root, "name": name }))
 }
 
+pub fn capture(session: &str) -> Result<Value, String> {
+    let mut args = json!({ "save": false });
+    if !session.is_empty() {
+        args["session"] = json!(session);
+    }
+    action("workspace_capture", args)
+}
+
 pub fn resize(screen: &str) -> Result<Value, String> {
     action("workspace_ui_resize", json!({ "screen": screen }))
 }

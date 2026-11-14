@@ -3,6 +3,7 @@ local layout = require("rex-workspaces.lib.layout")
 local M = {}
 
 M.LABEL = "Workspaces"
+M.EDIT_LABEL = "Edit workspaces"
 M.BIN = "rex-workspaces"
 
 function M.new(api, L, settings)
@@ -88,7 +89,7 @@ function M.new(api, L, settings)
     for _, a in ipairs(args or {}) do
       command[#command + 1] = a
     end
-    if command[2] == "edit" or command[2] == "new" then
+    if command[2] == "edit" or command[2] == "new" or command[2] == "capture" then
       rows = layout.EDIT_ROWS
     end
     ui.float(ctx, M.LABEL, command, cwd or settings.home, bounds(ctx, rows or 0))
@@ -132,7 +133,7 @@ function M.new(api, L, settings)
 
   function ui.edit_file(ctx, file)
     local command = { "sh", "-c", '"${EDITOR:-vi}" "$1" && rex config reload', "sh", file }
-    ui.float(ctx, "Edit workspaces", command, settings.confdir, { 0.15, 0.1, 0.7, 0.7 })
+    ui.float(ctx, M.EDIT_LABEL, command, settings.confdir, { 0.15, 0.1, 0.7, 0.7 })
   end
 
   return ui

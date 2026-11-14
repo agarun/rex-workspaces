@@ -24,6 +24,9 @@ const USAGE: &str = "usage: rex-workspaces [COMMAND]
   (none)        open the workspaces window
   edit NAME     open the window on a workspace's form
   new [DIR]     open the window on a new workspace for DIR
+  capture [SESSION]
+                open the window on a new workspace saved from SESSION's tabs and
+                panes (default: the session this runs in)
   install       link this folder next to Rex's init.lua, add the require line,
                 create workspaces.json from the example, and reload Rex
   uninstall     remove the require line and the link; keeps workspaces.json
@@ -40,6 +43,12 @@ fn start_from_args(args: &[String]) -> Start {
             });
             Start::New(dir.unwrap_or_default())
         }
+        Some("capture") => Start::Capture(
+            args.get(1)
+                .cloned()
+                .or_else(|| std::env::var("REX_SESSION").ok())
+                .unwrap_or_default(),
+        ),
         _ => Start::List,
     }
 }
@@ -73,7 +82,7 @@ fn command(args: &[String]) -> Option<i32> {
             println!("rex-workspaces {}", env!("CARGO_PKG_VERSION"));
             Some(0)
         }
-        Some("edit" | "new") | None => None,
+        Some("edit" | "new" | "capture") | None => None,
         Some(other) => {
             eprintln!("rex-workspaces: unknown command: {other}\n\n{USAGE}");
             Some(2)

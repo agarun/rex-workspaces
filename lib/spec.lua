@@ -10,6 +10,21 @@ M.HOOKS = { "before_start", "after_start", "before_stop", "after_stop" }
 local SERVERS_IN = { float = true, tab = true }
 local SPLITS = { right = true, down = true }
 
+M.UNTITLED = "untitled"
+
+function M.default_name(name, home, taken)
+  local login = home and home:match("([^/]+)/*$")
+  if name ~= nil and name ~= "" and name ~= login then
+    return name
+  end
+  local pick, n = M.UNTITLED, 2
+  while taken and taken[pick] ~= nil do
+    pick = M.UNTITLED .. " " .. n
+    n = n + 1
+  end
+  return pick
+end
+
 function M.slug(name)
   return (name:lower():gsub("[^%w]+", "_"):gsub("^_+", ""):gsub("_+$", ""))
 end

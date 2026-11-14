@@ -245,11 +245,8 @@ impl App {
                 if ed.fresh && empty {
                     if let Some(starter) = v.get("starter").filter(|s| s.is_object()) {
                         ed.spec = starter.clone();
-                        let found = spec::len(&ed.spec, "/servers");
-                        ed.message = Some((
-                            format!("Found {found} dev servers. Check them, then save."),
-                            false,
-                        ));
+                        ed.message =
+                            found_message(spec::len(&ed.spec, "/servers")).map(|m| (m, false));
                     }
                 }
                 ed.fresh = false;
@@ -315,11 +312,19 @@ impl App {
         self.detect(&root, name);
     }
 
+    fn names(&self) -> Vec<String> {
+        self.workspaces
+            .iter()
+            .filter_map(|w| w["name"].as_str().map(String::from))
+            .collect()
+    }
+
     fn new_workspace(&mut self, dir: String) {
-        let name = PathBuf::from(&dir)
+        let base = PathBuf::from(&dir)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
+        let name = spec::default_name(&base, &self.home, &self.names());
         let spec = json!({ "root": spec::contract(&dir, &self.home) });
         if matches!(self.screen, Screen::List) && self.loaded {
             self.fit_window("edit");
@@ -753,6 +758,14 @@ impl App {
         if let Some(p) = &self.picker {
             p.render(f, &mut self.hits, self.hover, &self.home);
         }
+    }
+}
+
+fn found_message(found: usize) -> Option<String> {
+    match found {
+        0 => None,
+        1 => Some("Found 1 dev server. Check it, then save.".into()),
+        n => Some(format!("Found {n} dev servers. Check them, then save.")),
     }
 }
 

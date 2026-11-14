@@ -3,6 +3,7 @@ local detect = require("rex-workspaces.lib.detect")
 local layout = require("rex-workspaces.lib.layout")
 local lifecycle = require("rex-workspaces.lib.lifecycle")
 local path = require("rex-workspaces.lib.path")
+local spec = require("rex-workspaces.lib.spec")
 local store = require("rex-workspaces.lib.store")
 
 local M = {}
@@ -109,7 +110,7 @@ function M.new(rex, api, ui, settings)
     if root == nil then
       error("no folder given and the focused pane has not reported one", 0)
     end
-    local name = args.name or path.basename(root)
+    local name = args.name or spec.default_name(path.basename(root), settings.home, self.load().raw)
     local raw = detect.starter(detect.scan(fs, root), name)
     raw.root = path.contract(root, settings.home)
     local saved = store.save(files, name, raw)

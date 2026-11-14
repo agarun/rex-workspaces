@@ -65,6 +65,24 @@ pub fn len(spec: &Value, ptr: &str) -> usize {
         .map_or(0, Vec::len)
 }
 
+pub fn default_name(name: &str, home: &str, taken: &[String]) -> String {
+    let login = home
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or_default();
+    if !name.is_empty() && name != login {
+        return name.to_string();
+    }
+    let mut pick = "untitled".to_string();
+    let mut n = 2;
+    while taken.contains(&pick) {
+        pick = format!("untitled {n}");
+        n += 1;
+    }
+    pick
+}
+
 pub fn expand(path: &str, home: &str) -> String {
     if path == "~" {
         return home.to_string();

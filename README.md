@@ -1,5 +1,7 @@
 # rex-workspaces
 
+<video src="assets/demo.mp4" controls muted width="100%"></video>
+
 rex-workspaces manages your projects in [Rex](https://www.superlogical.com/rex): save and configure workspaces in any project so you can easily start and stop them.
 
 A workspace is a saved definition of a Rex session. It configures the folders, tabs, panes, servers, and commands you want automatically opened or closed at the click of a button ⏺️

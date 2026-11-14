@@ -19,6 +19,8 @@ pub struct View<'a> {
     pub home: &'a str,
     pub status: Option<Line<'static>>,
     pub button_focus: Option<usize>,
+    pub hosts: &'a [String],
+    pub host: Option<&'a str>,
 }
 
 fn servers(ws: &Value) -> &[Value] {
@@ -57,6 +59,22 @@ pub fn matches(name: &str, query: &str) -> bool {
         .flat_map(char::to_lowercase)
         .filter(|c| !c.is_whitespace())
         .all(|q| chars.any(|c| c == q))
+}
+
+fn host_row(hosts: &[String], host: Option<&str>) -> Line<'static> {
+    let p = palette();
+    let mut spans = vec![Span::styled("Host  ", muted())];
+    for label in std::iter::once("local").chain(hosts.iter().map(String::as_str)) {
+        let current = host.unwrap_or("local") == label;
+        let style = if current {
+            bold().fg(p.accent)
+        } else {
+            muted()
+        };
+        spans.push(Span::styled(format!("{label}  "), style));
+    }
+    spans.push(Span::styled(" h switches", faint()));
+    Line::from(spans)
 }
 
 pub fn buttons(selected: Option<&Value>, any: bool) -> Vec<(&'static str, Button)> {
@@ -205,12 +223,22 @@ pub fn render(f: &mut Frame, area: Rect, view: View, hits: &mut Hits, hover: Opt
         .get(view.selected)
         .filter(|_| view.visible.contains(&view.selected));
     let actions = buttons(current, !view.workspaces.is_empty());
+    let host_height = if view.hosts.is_empty() { 0 } else { 2 };
+    let draw_hosts = |f: &mut Frame, bar_height: u16| {
+        if host_height > 0 {
+            let y = (area.y + area.height).saturating_sub(bar_height + 2);
+            let row = host_row(view.hosts, view.host);
+            line(f, Rect::new(area.x, y, area.width, 1), 0, row);
+        }
+    };
     if view.loaded && view.workspaces.is_empty() {
+        draw_hosts(f, BUTTON_HEIGHT);
         first_workspace(f, area, &actions, hits, hover, view.button_focus);
         return;
     }
     let bar: Vec<Button> = actions.into_iter().map(|(_, b)| b).collect();
     let bar_height = button_rows(area, &bar);
+    draw_hosts(f, bar_height);
     let mut top = area.y;
     if let Some(query) = view.filter {
         let p = palette();
@@ -226,7 +254,7 @@ pub fn render(f: &mut Frame, area: Rect, view: View, hits: &mut Hits, hover: Opt
         line(f, area, 0, Line::from(spans));
         top += 2;
     }
-    let room = (area.y + area.height).saturating_sub(top + bar_height + 2);
+    let room = (area.y + area.height).saturating_sub(top + bar_height + host_height + 2);
     if view.loaded && cards.is_empty() {
         let rect = Rect::new(area.x, top, area.width, 1);
         line(f, rect, 0, Line::styled("No workspaces match", muted()));
@@ -257,7 +285,8 @@ pub fn render(f: &mut Frame, area: Rect, view: View, hits: &mut Hits, hover: Opt
     );
     button_row(f, bar_area, &bar, hits, hover, view.button_focus);
     if let Some(status) = view.status {
-        let rect = Rect::new(area.x, bar_area.y.saturating_sub(2), area.width, 1);
+        let y = bar_area.y.saturating_sub(2 + host_height);
+        let rect = Rect::new(area.x, y, area.width, 1);
         line(f, rect, 0, status);
     }
 }
@@ -346,6 +375,16 @@ mod tests {
         );
         assert_eq!(shown_worktree(&json!({ "worktree": "main" })), None);
         assert_eq!(shown_worktree(&json!({})), None);
+    }
+
+    #[test]
+    fn host_row_marks_the_current_host() {
+        let hosts = ["desktop".to_string()];
+        let row = host_row(&hosts, Some("desktop"));
+        let text: String = row.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text, "Host  local  desktop   h switches");
+        assert_eq!(row.spans[2].style, bold().fg(palette().accent));
+        assert_eq!(row.spans[1].style, muted());
     }
 
     #[test]

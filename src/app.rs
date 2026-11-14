@@ -52,6 +52,8 @@ pub struct App {
     loaded: bool,
     button_focus: Option<usize>,
     filter: Option<String>,
+    hosts: Vec<String>,
+    host: Option<String>,
 }
 
 impl App {
@@ -78,7 +80,10 @@ impl App {
             loaded: false,
             button_focus: None,
             filter: None,
+            hosts: Vec::new(),
+            host: None,
         };
+        app.spawn(Job::Hosts);
 
         match start {
             Start::List => {
@@ -94,7 +99,7 @@ impl App {
     }
 
     fn spawn(&self, job: Job) {
-        worker::spawn(&self.tx, job);
+        worker::spawn(&self.tx, self.host.clone(), job);
     }
 
     fn refresh(&mut self) {
@@ -156,11 +161,18 @@ impl App {
 
     fn handle(&mut self, done: Done) {
         match done {
-            Done::List(result) => {
+            Done::Hosts(hosts) => self.hosts = hosts,
+            Done::List(host, _) if host != self.host => {
+                self.listing = false;
+                self.last_list = None;
+            }
+            Done::List(_, result) => {
                 self.listing = false;
                 match result {
                     Ok(v) => {
-                        cache::store(&v);
+                        if self.host.is_none() {
+                            cache::store(&v);
+                        }
                         self.apply_list(&v);
                         if let Some(name) = self.select_after_list.take() {
                             self.select(&name);
@@ -195,7 +207,8 @@ impl App {
                         "restart" => "Restarted",
                         _ => "Started",
                     };
-                    self.status = Some((format!("{past} {name}"), false));
+                    let on = self.host.as_ref().map(|h| format!(" on {h}"));
+                    self.status = Some((format!("{past} {name}{}", on.unwrap_or_default()), false));
                     self.refresh();
                 }
                 Err(e) => self.fail(e),
@@ -291,6 +304,11 @@ impl App {
     fn verb(&mut self, verb: &str) {
         let Some(name) = self.selected_name() else {
             return;
+        };
+        let verb = if self.host.is_some() && verb == "open" {
+            "start"
+        } else {
+            verb
         };
         let running = match verb {
             "open" => "Opening",
@@ -499,10 +517,16 @@ impl App {
                 }
             }
             "new" => {
-                let dir = std::env::current_dir()
-                    .map(|d| d.to_string_lossy().into_owned())
-                    .unwrap_or_default();
+                let dir = match self.host {
+                    Some(_) => self.home.clone(),
+                    None => std::env::current_dir()
+                        .map(|d| d.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                };
                 self.new_workspace(dir);
+            }
+            "capture" if self.host.is_some() => {
+                self.fail("Save as new works only for this pane's host".into())
             }
             "capture" => match std::env::var("REX_SESSION") {
                 Ok(session) if !session.is_empty() => self.capture(session),
@@ -633,6 +657,7 @@ impl App {
             KeyCode::Char('e') => self.list_action("edit"),
             KeyCode::Char('n') => self.list_action("new"),
             KeyCode::Char('w') => self.list_action("capture"),
+            KeyCode::Char('h') if !self.hosts.is_empty() => self.next_host(),
             KeyCode::Char('q') | KeyCode::Esc => self.quit = true,
             _ => {}
         }
@@ -640,6 +665,24 @@ impl App {
         if self.button_focus.is_some_and(|i| !enabled[i].1.enabled) {
             self.button_focus = None;
         }
+    }
+
+    fn next_host(&mut self) {
+        let at = self
+            .host
+            .as_ref()
+            .and_then(|h| self.hosts.iter().position(|x| x == h));
+        self.host = match at {
+            None => self.hosts.first().cloned(),
+            Some(i) => self.hosts.get(i + 1).cloned(),
+        };
+        self.workspaces.clear();
+        self.loaded = false;
+        self.selected = 0;
+        self.status = None;
+        self.busy = None;
+        self.button_focus = None;
+        self.last_list = None;
     }
 
     fn editor_key(&mut self, k: KeyEvent) {
@@ -801,6 +844,8 @@ impl App {
                     home: &self.home,
                     status,
                     button_focus: self.button_focus,
+                    hosts: &self.hosts,
+                    host: self.host.as_deref(),
                 };
                 list::render(f, inner, view, &mut self.hits, self.hover);
             }

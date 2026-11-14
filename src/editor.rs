@@ -387,6 +387,18 @@ impl Editor {
             &["float", "tab"],
             "Floating panes, or a tab named servers",
         ));
+        rows.push(Row::choice(
+            "Stop servers",
+            "/stop/servers".into(),
+            &["close", "interrupt", "leave"],
+            "What Stop does to servers: Ctrl+C and close, Ctrl+C only, or nothing",
+        ));
+        rows.push(Row::choice(
+            "Stop panes",
+            "/stop/panes".into(),
+            &["leave", "interrupt", "close"],
+            "What Stop does to tab panes: nothing, Ctrl+C only, or Ctrl+C and close",
+        ));
         rows.push(Row::new(
             "Stop timeout",
             Kind::Text {

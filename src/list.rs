@@ -59,7 +59,8 @@ pub fn buttons(selected: Option<&Value>, any: bool) -> Vec<(&'static str, Button
     let open = selected.is_some_and(running);
     let has_servers = selected.is_some_and(|w| !servers(w).is_empty());
     let up = selected.map_or(0, |w| w["servers_up"].as_u64().unwrap_or(0));
-    let (serve, serve_label) = if open && up > 0 {
+    let only_panes = !has_servers && selected.is_some_and(|w| w["stops_panes"] == true);
+    let (serve, serve_label) = if open && (up > 0 || only_panes) {
         ("stop", "Stop")
     } else {
         ("start", "Start")
@@ -71,7 +72,8 @@ pub fn buttons(selected: Option<&Value>, any: bool) -> Vec<(&'static str, Button
         ),
         (
             serve,
-            Button::new(serve_label, "s", Tone::Normal).enabled(has_servers),
+            Button::new(serve_label, "s", Tone::Normal)
+                .enabled(has_servers || (open && only_panes)),
         ),
         (
             "restart",

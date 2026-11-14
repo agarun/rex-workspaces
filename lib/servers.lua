@@ -4,8 +4,6 @@ local spec = require("rex-workspaces.lib.spec")
 
 local M = {}
 
-M.POLL = 0.25
-
 local function holds_servers(ws, window, layer)
   if layer.kind == "floating" then
     return ws.servers_in == "float"
@@ -92,26 +90,17 @@ end
 
 function M.interrupt(api, sid, ws)
   local blocks = M.find(api, sid, ws)
-  local busy = {}
-  for label, b in pairs(blocks) do
-    if proc.is_busy(api, sid, b.block_id) then
-      api.write(sid, b.block_id, "\3")
-      busy[label] = b
+  local items = {}
+  for _, s in ipairs(ws.servers) do
+    local b = blocks[s.label]
+    if b then
+      items[#items + 1] = { label = s.label, block_id = b.block_id }
     end
   end
-  local waited = 0
-  while next(busy) ~= nil and waited < ws.stop_timeout do
-    api.sleep(M.POLL)
-    waited = waited + M.POLL
-    for label, b in pairs(busy) do
-      if not proc.is_busy(api, sid, b.block_id) then
-        busy[label] = nil
-      end
-    end
-  end
+  local _, busy = proc.interrupt(api, sid, items, ws.stop_timeout)
   local forced = {}
-  for label in pairs(busy) do
-    forced[#forced + 1] = label
+  for it in pairs(busy) do
+    forced[#forced + 1] = it.label
   end
   table.sort(forced)
   return blocks, forced

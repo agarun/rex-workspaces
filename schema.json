@@ -21,7 +21,16 @@
         "focus": { "type": "string", "description": "Name of the tab to show when the session is created. Default: the first tab." },
         "switch": { "type": "boolean", "default": true, "description": "Switch the app to the session after start." },
         "servers_in": { "enum": ["float", "tab"], "default": "float", "description": "Put servers in floating panes, or side by side in a tab named servers." },
-        "stop_timeout": { "type": "number", "minimum": 0, "default": 5, "description": "Seconds to wait after Ctrl-C before closing a server anyway." },
+        "stop_timeout": { "type": "number", "minimum": 0, "default": 5, "description": "Seconds to wait after Ctrl-C, for servers and panes. Then close ones close anyway." },
+        "stop": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "What Stop does. Restart uses only servers. Close always ends the session.",
+          "properties": {
+            "servers": { "$ref": "#/definitions/stop", "default": "close", "description": "close: Ctrl-C, wait, close the pane. interrupt: Ctrl-C only, the pane stays. leave: nothing." },
+            "panes": { "$ref": "#/definitions/stop", "default": "leave", "description": "For tab panes. leave: nothing. interrupt: Ctrl-C busy panes, they stay. close: Ctrl-C busy panes, wait, close all of them, but never the session's last pane." }
+          }
+        },
         "servers": { "type": "array", "items": { "$ref": "#/definitions/server" }, "description": "Long-running commands. Stop presses Ctrl-C in each." },
         "tabs": { "type": "array", "items": { "$ref": "#/definitions/tab" }, "description": "Tabs to open. Default: one shell at root." },
         "hooks": { "$ref": "#/definitions/hooks" }
@@ -35,6 +44,7 @@
         "label": { "type": "string", "description": "Pane label. Unique within the workspace." },
         "cmd": { "type": "string", "description": "Command typed into the pane's shell." },
         "cwd": { "type": "string", "description": "Folder, relative to root." },
+        "stop": { "$ref": "#/definitions/stop", "description": "What Stop does to this server. Default: the workspace's stop.servers." },
         "minimized": { "type": "boolean", "default": true, "description": "Start the floating pane minimized." },
         "bounds": {
           "type": "array",
@@ -54,6 +64,7 @@
         "panes": { "type": "array", "items": { "$ref": "#/definitions/pane" } }
       }
     },
+    "stop": { "enum": ["close", "interrupt", "leave"] },
     "pane": {
       "type": "object",
       "required": ["label"],
@@ -61,7 +72,8 @@
       "properties": {
         "label": { "type": "string" },
         "cwd": { "type": "string", "description": "Folder, relative to root." },
-        "cmd": { "type": "string", "description": "Command typed into the shell when the pane opens." }
+        "cmd": { "type": "string", "description": "Command typed into the shell when the pane opens." },
+        "stop": { "$ref": "#/definitions/stop", "description": "What Stop does to this pane. Default: the workspace's stop.panes." }
       }
     },
     "hooks": {

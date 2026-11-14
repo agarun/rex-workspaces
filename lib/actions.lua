@@ -20,10 +20,12 @@ local TITLES = {
   restart = "Restart %s Servers",
 }
 
+local STOP_ALL = "Stop %s"
+
 local DESCRIPTIONS = {
   open = "Switch to the workspace's session as it is. If it isn't open yet, start it.",
   start = "Open the workspace's session, or switch to it, and start any servers that aren't running.",
-  stop = "Press Ctrl-C in each server pane, then close them. Other tabs stay open.",
+  stop = "Stop the servers, and the tab panes if the workspace says so. See the stop option.",
   close = "Stop the servers, then close the whole session.",
   restart = "Stop the servers, then start them again.",
 }
@@ -91,10 +93,13 @@ function M.new(rex, api, ui, settings)
 
   local function list()
     local cfg, errs = self.load()
-    local out = lifecycle.list(api, cfg)
-    for _, st in ipairs(out) do
-      st.spec = cfg.raw[st.name]
-      st.file = cfg.origin[st.name]
+    local sessions = api.sessions()
+    local out = {}
+    for _, ws in ipairs(cfg.list) do
+      local st = lifecycle.status(api, ws, sessions)
+      st.spec = cfg.raw[ws.name]
+      st.file = cfg.origin[ws.name]
+      out[#out + 1] = st
     end
     return {
       workspaces = out,
@@ -239,11 +244,13 @@ function M.new(rex, api, ui, settings)
   function self.register_each(cfg)
     for _, ws in ipairs(cfg.list) do
       for _, verb in ipairs(M.VERBS) do
-        if verb == "open" or verb == "start" or verb == "close" or #ws.servers > 0 then
+        local stops = #ws.servers > 0 or (verb == "stop" and spec.stops_panes(ws))
+        if verb == "open" or verb == "start" or verb == "close" or stops then
           local name = ws.name
+          local title = (verb == "stop" and spec.stops_panes(ws)) and STOP_ALL or TITLES[verb]
           define({
             name = "workspace_" .. verb .. "_" .. ws.slug,
-            title = "Workspace: " .. TITLES[verb]:format(name),
+            title = "Workspace: " .. title:format(name),
             description = DESCRIPTIONS[verb],
             keywords = "workspace project " .. name,
             run = function(ctx)

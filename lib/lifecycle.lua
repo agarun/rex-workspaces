@@ -3,6 +3,7 @@ local layout = require("rex-workspaces.lib.layout")
 local proc = require("rex-workspaces.lib.proc")
 local servers = require("rex-workspaces.lib.servers")
 local spec = require("rex-workspaces.lib.spec")
+local stop = require("rex-workspaces.lib.stop")
 
 local M = {}
 
@@ -91,16 +92,33 @@ function M.open(api, L, ws, opts)
   return { session_id = sid, created = false, started = false, selected = api.select(sid, opts.ctx) }
 end
 
-function M.stop(api, ws)
+local function labels_of(list)
+  local out = {}
+  for _, t in ipairs(list) do
+    out[#out + 1] = t.label
+  end
+  table.sort(out)
+  return out
+end
+
+function M.stop(api, ws, opts)
+  opts = opts or {}
   local sid = M.find_session(api, ws.name)
   if sid == nil then
-    return { stopped = false }
+    return { stopped = false, message = ws.name .. " is not open." }
   end
   hooks.run(api, ws, "before_stop")
-  local blocks, forced = servers.interrupt(api, sid, ws)
-  servers.close(api, sid, blocks)
+  local r = stop.run(api, sid, ws, { panes = opts.panes ~= false })
   hooks.run(api, ws, "after_stop")
-  return { stopped = true, session_id = sid, forced = forced }
+  return {
+    stopped = true,
+    session_id = sid,
+    forced = labels_of(r.forced),
+    closed = labels_of(r.closed),
+    interrupted = labels_of(r.interrupted),
+    kept = r.kept,
+    message = stop.message(ws.name, r, ws.stop_timeout),
+  }
 end
 
 function M.close(api, ws)
@@ -116,7 +134,7 @@ function M.close(api, ws)
 end
 
 function M.restart(api, L, ws, opts)
-  M.stop(api, ws)
+  M.stop(api, ws, { panes = false })
   return M.start(api, L, ws, opts)
 end
 
@@ -137,17 +155,9 @@ function M.status(api, ws, sessions)
     session_id = sid,
     servers = list,
     servers_up = up,
+    stops_panes = spec.stops_panes(ws),
     tabs = #ws.tabs,
   }
-end
-
-function M.list(api, cfg)
-  local sessions = api.sessions()
-  local out = {}
-  for _, ws in ipairs(cfg.list) do
-    out[#out + 1] = M.status(api, ws, sessions)
-  end
-  return out
 end
 
 return M

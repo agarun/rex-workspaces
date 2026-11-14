@@ -178,6 +178,13 @@ impl App {
                     self.status = Some((format!("{name} is open. {hint}."), false));
                     self.refresh();
                 }
+                Ok(v) if verb == "stop" && v["message"].is_string() => {
+                    self.busy = None;
+                    let message = v["message"].as_str().unwrap_or_default().to_string();
+                    let warn = !v["forced"].as_array().is_none_or(Vec::is_empty);
+                    self.status = Some((message, warn));
+                    self.refresh();
+                }
                 Ok(_) => {
                     self.busy = None;
                     let past = match verb.as_str() {

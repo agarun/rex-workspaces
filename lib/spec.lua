@@ -9,6 +9,9 @@ M.HOOKS = { "before_start", "after_start", "before_stop", "after_stop" }
 
 local SERVERS_IN = { float = true, tab = true }
 local SPLITS = { right = true, down = true }
+local STOPS = { close = true, interrupt = true, leave = true }
+local STOP_HELP = 'must be "close", "interrupt" or "leave"'
+M.STOP_DEFAULT = { servers = "close", panes = "leave" }
 
 M.UNTITLED = "untitled"
 
@@ -75,6 +78,33 @@ local function valid_bounds(b)
   return true
 end
 
+local function stop_value(errs, where, value)
+  if value == nil or STOPS[value] then
+    return value
+  end
+  report(errs, where, STOP_HELP)
+  return nil
+end
+
+local function stop_of(raw, where, errs)
+  local out = { servers = M.STOP_DEFAULT.servers, panes = M.STOP_DEFAULT.panes }
+  if raw == nil then
+    return out
+  end
+  if type(raw) ~= "table" or (is_array(raw) and #raw > 0) then
+    report(errs, where, "must be an object")
+    return out
+  end
+  for key in pairs(raw) do
+    if out[key] == nil then
+      report(errs, where .. "." .. tostring(key), 'unknown key; use "servers" or "panes"')
+    end
+  end
+  out.servers = stop_value(errs, where .. ".servers", raw.servers) or out.servers
+  out.panes = stop_value(errs, where .. ".panes", raw.panes) or out.panes
+  return out
+end
+
 local function pane(raw, where, base, home, errs)
   if type(raw) ~= "table" then
     report(errs, where, "must be an object")
@@ -89,6 +119,7 @@ local function pane(raw, where, base, home, errs)
     label = raw.label,
     cmd = typed(errs, where .. ".cmd", raw.cmd, "string"),
     cwd = path.join(base, path.expand(cwd, home)),
+    stop = stop_value(errs, where .. ".stop", raw.stop),
   }
 end
 
@@ -185,6 +216,26 @@ local function has_tab(ws, name)
   return false
 end
 
+function M.each_pane(nodes, fn)
+  for _, n in ipairs(nodes) do
+    if n.panes then
+      M.each_pane(n.panes, fn)
+    else
+      fn(n)
+    end
+  end
+end
+
+function M.stops_panes(ws)
+  local any = false
+  for _, t in ipairs(ws.tabs) do
+    M.each_pane(t.panes, function(p)
+      any = any or (p.stop or ws.stop.panes) ~= "leave"
+    end)
+  end
+  return any
+end
+
 function M.normalize(name, raw, home)
   if type(raw) ~= "table" or (is_array(raw) and #raw > 0) then
     return nil, { name .. ": must be an object" }
@@ -216,6 +267,7 @@ function M.normalize(name, raw, home)
   ws.servers = servers(raw.servers, name .. ".servers", ws.dir, home, errs)
   ws.tabs = tabs(raw.tabs, name .. ".tabs", ws, home, errs)
   ws.hooks = hooks(raw.hooks, name .. ".hooks", errs)
+  ws.stop = stop_of(raw.stop, name .. ".stop", errs)
   if ws.focus and not has_tab(ws, ws.focus) then
     report(errs, name .. ".focus", 'no tab named "' .. ws.focus .. '"')
     ws.focus = nil

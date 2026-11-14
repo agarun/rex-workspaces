@@ -1,0 +1,28 @@
+{
+  "workspaces": {
+    "alpha": {
+      "root": "{{ROOT}}",
+      "key": "ctrl+cmd+9",
+      "focus": "logs",
+      "servers": [
+        { "label": "api", "cmd": "sh {{FIX}}/server.sh api {{OUT}}" },
+        { "label": "web", "cwd": "web", "cmd": "sh {{FIX}}/server.sh web {{OUT}}", "minimized": false }
+      ],
+      "tabs": [
+        { "name": "agents", "panes": [{ "label": "one" }, { "label": "two", "cwd": "web" }] },
+        { "name": "logs", "split": "down", "panes": [{ "label": "tail", "cmd": "echo hi" }] }
+      ],
+      "hooks": {
+        "before_start": "echo before_start >> {{OUT}}/hooks.log",
+        "after_start": "echo after_start >> {{OUT}}/hooks.log",
+        "before_stop": "echo before_stop >> {{OUT}}/hooks.log",
+        "after_stop": "echo after_stop >> {{OUT}}/hooks.log"
+      }
+    },
+    "beta": {
+      "root": "{{ROOT}}",
+      "servers_in": "tab",
+      "servers": [{ "label": "worker", "cmd": "sh {{FIX}}/server.sh worker {{OUT}}" }]
+    }
+  }
+}

@@ -1,6 +1,8 @@
 # rex-workspaces
 
-<video src="assets/demo.mp4" controls muted width="100%"></video>
+
+https://github.com/user-attachments/assets/78a10da3-f01a-4819-8c8f-9db29d1b3382
+
 
 rex-workspaces manages your projects in [Rex](https://www.superlogical.com/rex): save and configure workspaces in any project so you can easily start and stop them.
 

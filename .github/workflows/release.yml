@@ -26,25 +26,28 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - run: cargo build --release --locked --target ${{ matrix.target }}
       - run: packaging/package.sh ${{ matrix.target }} target/${{ matrix.target }}/release/rex-workspaces dist
-      - uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          files: dist/rex-workspaces-${{ matrix.target }}.tar.gz
+          name: ${{ matrix.target }}
+          path: dist/rex-workspaces-${{ matrix.target }}.tar.gz
 
-  homebrew:
+  release:
     needs: build
     runs-on: ubuntu-latest
     env:
       TAP: agarun/homebrew-tap
       HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/rex-workspaces-*.tar.gz
       - if: env.HOMEBREW_TAP_TOKEN == ''
         run: echo "::notice::HOMEBREW_TAP_TOKEN is not set; skipping the tap update"
-      - if: env.HOMEBREW_TAP_TOKEN != ''
-        uses: actions/checkout@v4
-      - if: env.HOMEBREW_TAP_TOKEN != ''
-        run: gh release download "$GITHUB_REF_NAME" --pattern 'rex-workspaces-*.tar.gz' --dir dist
-        env:
-          GH_TOKEN: ${{ github.token }}
       - if: env.HOMEBREW_TAP_TOKEN != ''
         uses: actions/checkout@v4
         with:
@@ -59,5 +62,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Formula/rex-workspaces.rb
-          git commit -m "rex-workspaces ${GITHUB_REF_NAME#v}"
+          git diff --cached --quiet || git commit -m "rex-workspaces ${GITHUB_REF_NAME#v}"
           git push

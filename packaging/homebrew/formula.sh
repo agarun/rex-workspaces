@@ -11,6 +11,11 @@ sum() {
   shasum -a 256 "$file" | cut -d' ' -f1
 }
 
+mac_arm=$(sum aarch64-apple-darwin)
+mac_intel=$(sum x86_64-apple-darwin)
+linux_arm=$(sum aarch64-unknown-linux-musl)
+linux_intel=$(sum x86_64-unknown-linux-musl)
+
 cat <<RUBY
 class RexWorkspaces < Formula
   desc "Start, stop and restart project workspaces in Rex"
@@ -21,21 +26,21 @@ class RexWorkspaces < Formula
   on_macos do
     on_arm do
       url "#{base}/rex-workspaces-aarch64-apple-darwin.tar.gz"
-      sha256 "$(sum aarch64-apple-darwin)"
+      sha256 "$mac_arm"
     end
     on_intel do
       url "#{base}/rex-workspaces-x86_64-apple-darwin.tar.gz"
-      sha256 "$(sum x86_64-apple-darwin)"
+      sha256 "$mac_intel"
     end
   end
   on_linux do
     on_arm do
       url "#{base}/rex-workspaces-aarch64-unknown-linux-musl.tar.gz"
-      sha256 "$(sum aarch64-unknown-linux-musl)"
+      sha256 "$linux_arm"
     end
     on_intel do
       url "#{base}/rex-workspaces-x86_64-unknown-linux-musl.tar.gz"
-      sha256 "$(sum x86_64-unknown-linux-musl)"
+      sha256 "$linux_intel"
     end
   end
 

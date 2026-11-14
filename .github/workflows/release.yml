@@ -1,0 +1,63 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: macos-14, target: aarch64-apple-darwin }
+          - { os: macos-14, target: x86_64-apple-darwin }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - if: contains(matrix.target, 'linux')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - run: packaging/package.sh ${{ matrix.target }} target/${{ matrix.target }}/release/rex-workspaces dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/rex-workspaces-${{ matrix.target }}.tar.gz
+
+  homebrew:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      TAP: agarun/homebrew-tap
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - if: env.HOMEBREW_TAP_TOKEN == ''
+        run: echo "::notice::HOMEBREW_TAP_TOKEN is not set; skipping the tap update"
+      - if: env.HOMEBREW_TAP_TOKEN != ''
+        uses: actions/checkout@v4
+      - if: env.HOMEBREW_TAP_TOKEN != ''
+        run: gh release download "$GITHUB_REF_NAME" --pattern 'rex-workspaces-*.tar.gz' --dir dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - if: env.HOMEBREW_TAP_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TAP }}
+          token: ${{ env.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - if: env.HOMEBREW_TAP_TOKEN != ''
+        run: |
+          mkdir -p tap/Formula
+          packaging/homebrew/formula.sh "$GITHUB_REF_NAME" dist > tap/Formula/rex-workspaces.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/rex-workspaces.rb
+          git commit -m "rex-workspaces ${GITHUB_REF_NAME#v}"
+          git push

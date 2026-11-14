@@ -91,24 +91,29 @@ fn main() -> std::io::Result<()> {
     let _ = std::io::Write::flush(&mut stdout());
     theme::detect();
     let mut terminal = ratatui::init();
+    let _restore = Restore;
     let flags = PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES);
     execute!(stdout(), EnableMouseCapture, flags)?;
     let mut app = App::new(start);
-    let result = (|| -> std::io::Result<()> {
-        while !app.quit {
-            app.tick();
-            terminal.draw(|f| app.render(f))?;
-            if event::poll(Duration::from_millis(150))? {
-                match event::read()? {
-                    Event::Key(k) if k.kind == KeyEventKind::Press => app.key(k),
-                    Event::Mouse(m) => app.mouse(m),
-                    _ => {}
-                }
+    while !app.quit {
+        app.tick();
+        terminal.draw(|f| app.render(f))?;
+        if event::poll(Duration::from_millis(150))? {
+            match event::read()? {
+                Event::Key(k) if k.kind == KeyEventKind::Press => app.key(k),
+                Event::Mouse(m) => app.mouse(m),
+                _ => {}
             }
         }
-        Ok(())
-    })();
-    execute!(stdout(), PopKeyboardEnhancementFlags, DisableMouseCapture)?;
-    ratatui::restore();
-    result
+    }
+    Ok(())
+}
+
+struct Restore;
+
+impl Drop for Restore {
+    fn drop(&mut self) {
+        let _ = execute!(stdout(), PopKeyboardEnhancementFlags, DisableMouseCapture);
+        ratatui::restore();
+    }
 }

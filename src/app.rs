@@ -384,6 +384,10 @@ impl App {
             ed.message = Some(("Give the workspace a name".into(), true));
             return;
         }
+        if let Err(e) = ed.normalize_bounds() {
+            ed.message = Some((e, true));
+            return;
+        }
         ed.pending = true;
         ed.message = Some(("Saving…".into(), false));
         let job = Job::Save {

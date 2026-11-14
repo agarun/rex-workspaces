@@ -255,6 +255,15 @@ impl Editor {
                 .tree(&format!("{t}{}", branch(false))),
             );
             rows.push(
+                Row::text(
+                    "Position",
+                    format!("{p}/bounds"),
+                    "Right stack",
+                    "Floating pane as x y width height, each 0 to 1, e.g. 0.6 0.05 0.38 0.25",
+                )
+                .tree(&format!("{t}{}", branch(false))),
+            );
+            rows.push(
                 Row::text("Worktree", format!("{p}/worktree"), "None", WORKTREE_HINT)
                     .tree(&format!("{t}{}", branch(true))),
             );
@@ -388,7 +397,33 @@ impl Editor {
         if ptr == "#name" {
             return self.name.clone();
         }
+        if let Some(Value::Array(items)) = self.spec.pointer(ptr) {
+            let parts: Vec<String> = items.iter().map(Value::to_string).collect();
+            return parts.join(" ");
+        }
         spec::text(&self.spec, ptr)
+    }
+
+    pub fn normalize_bounds(&mut self) -> Result<(), String> {
+        let Some(servers) = self.spec["servers"].as_array_mut() else {
+            return Ok(());
+        };
+        for server in servers {
+            let Some(text) = server.get("bounds").and_then(Value::as_str) else {
+                continue;
+            };
+            let parsed = parse_bounds(text).ok_or_else(|| {
+                let label = field(server, "label");
+                format!("Position for {label} needs four numbers from 0 to 1: x y width height")
+            })?;
+            match parsed {
+                Some(b) => server["bounds"] = json!(b),
+                None => {
+                    server.as_object_mut().map(|o| o.remove("bounds"));
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn set_text(&mut self, ptr: &str, value: String, number: bool) {
@@ -1103,6 +1138,20 @@ pub fn shortcut(k: KeyEvent) -> Option<String> {
     Some(parts.join("+"))
 }
 
+fn parse_bounds(text: &str) -> Option<Option<[f64; 4]>> {
+    let nums: Vec<f64> = text
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|t| !t.is_empty())
+        .map(|t| t.parse::<f64>())
+        .collect::<Result<_, _>>()
+        .ok()?;
+    match nums[..] {
+        [] => Some(None),
+        [x, y, w, h] if nums.iter().all(|n| (0.0..=1.0).contains(n)) => Some(Some([x, y, w, h])),
+        _ => None,
+    }
+}
+
 fn number_or_text(value: String) -> Value {
     if let Ok(n) = value.parse::<u64>() {
         return json!(n);
@@ -1119,6 +1168,18 @@ mod tests {
 
     fn press(code: KeyCode, m: KeyModifiers) -> Option<String> {
         shortcut(KeyEvent::new(code, m))
+    }
+
+    #[test]
+    fn bounds_text_becomes_an_array_or_an_error() {
+        assert_eq!(parse_bounds(""), Some(None));
+        assert_eq!(
+            parse_bounds("0.6 0.05, 0.38 0.25"),
+            Some(Some([0.6, 0.05, 0.38, 0.25]))
+        );
+        assert_eq!(parse_bounds("0.6 0.05 0.38"), None);
+        assert_eq!(parse_bounds("0.6 0.05 0.38 2"), None);
+        assert_eq!(parse_bounds("a b c d"), None);
     }
 
     #[test]

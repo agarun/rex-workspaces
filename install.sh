@@ -2,7 +2,7 @@
 set -eu
 
 dir=${REX_WORKSPACES_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/rex/rex-workspaces}
-from_source='see "From source" in the README: https://github.com/agarun/rex-workspaces#from-source'
+from_source='see "Building from source" in the README: https://github.com/agarun/rex-workspaces#building-from-source'
 
 fail() { printf 'rex-workspaces: %s\n' "$*" >&2; exit 1; }
 

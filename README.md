@@ -81,8 +81,19 @@ If you used Homebrew, run `brew uninstall rex-workspaces` after this command.
 
 ### Remote hosts
 
-Right now, each Rex server reads its own config. Install rex-workspaces on each host where you want to
-use it.
+Each Rex server reads its own config and runs its panes on its own machine, so install rex-workspaces on
+each host where you want to use it. The workspaces window lists the workspaces of the host it opens on, so
+attach to a host's session and open it there. If that host does not have rex-workspaces, the pane shows the
+install command to run there.
+
+To use another host's workspaces from this machine, send the action to that host with `-S`:
+
+```sh
+rex -S desktop do workspace_list
+rex -S desktop do workspace_start name=my-project select=false
+```
+
+Then switch to that session in Rex.
 
 ## How to use
 
@@ -173,11 +184,11 @@ the command palette. Editors that read `$schema` show a description of each fiel
 | `servers_in`   | `"float"`                          | `"float"` puts servers in floating panes. `"tab"` puts them in a `servers` tab.                                                                                 |
 | `stop_timeout` | `5`                                | Seconds to wait after Ctrl-C, for servers and panes.                                                                                                            |
 | `stop`         | Servers `"close"`, panes `"leave"` | What Stop does. `servers` and `panes`, each `"close"`, `"interrupt"` or `"leave"`. See [What Stop does](#what-stop-does).                                       |
-| `servers[]`    |                                    | `label`, `cmd`, `cwd`, `minimized` (default `true`), `bounds` `[x, y, w, h]`, `stop`.                                                                           |
+| `servers[]`    |                                    | `label`, `cmd`, `cwd`, `minimized` (default `true`), `bounds` `[x, y, w, h]`, `stop`. See [Server panes](#server-panes).                                                                        |
 | `tabs[]`       | One shell                          | `name`, `split` (`"right"`, `"down"` or `"grid"`), `panes[]` with `label`, `cwd`, `cmd`, `stop`. A pane can also be a group. See [Pane layouts](#pane-layouts). |
 | `hooks`        |                                    | `before_start`, `after_start`, `before_stop`, `after_stop`. Shell commands that run in `root`. Each has a 20 second limit.                                      |
 
-### "Stop" options
+### What Stop does
 
 `stop` sets what **Stop** does, for servers and for the panes in `tabs[]`:
 
@@ -206,6 +217,17 @@ the command palette. Editors that read `$schema` show a description of each fiel
 - The `before_stop` and `after_stop` hooks run before and after all of it.
 - With no servers, the window shows **Stop** for an open workspace whose panes Stop acts on.
   `rex do workspace_stop name=NAME` returns a `message` that says what was stopped.
+
+### Server panes
+
+With `servers_in: "float"`, each server opens in a floating pane. `minimized` (default `true`) starts it
+tucked away. `bounds` is `[x, y, width, height]` as fractions of the window, from 0 to 1, for example
+`[0.6, 0.32, 0.38, 0.3]`. Without `bounds`, servers stack down the right side. With `servers_in: "tab"`,
+both are ignored.
+
+In the edit window, **Minimized** and **Position** are set per server. Type Position as four numbers, for
+example `0.6 0.32 0.38 0.3`, or leave it empty for the default. To find numbers, arrange the panes in Rex
+and use **Save as new**.
 
 ### Pane layouts
 

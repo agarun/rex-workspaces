@@ -5,6 +5,19 @@ local M = {}
 M.LABEL = "Workspaces"
 M.EDIT_LABEL = "Edit workspaces"
 M.BIN = "rex-workspaces"
+M.INSTALL_URL = "https://raw.githubusercontent.com/agarun/rex-workspaces/main/install.sh"
+
+local LAUNCH = ([[
+local_bin=$1; shift
+home_bin="${REX_WORKSPACES_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/rex/rex-workspaces}/bin/rex-workspaces"
+for bin in "$local_bin" "$home_bin"; do
+  [ -x "$bin" ] && exec "$bin" "$@"
+done
+command -v rex-workspaces >/dev/null && exec rex-workspaces "$@"
+printf 'rex-workspaces is not installed on this host.\nInstall it here with:\n'
+printf '  curl -fsSL @URL@ | sh\n\nPress Enter to close.'
+read -r _
+]]):gsub("@URL@", M.INSTALL_URL)
 
 function M.new(api, L, settings)
   local ui = {}
@@ -85,11 +98,12 @@ function M.new(api, L, settings)
     if layer then
       api.close_layer(ctx.session_id, layer)
     end
-    local command = { bin }
+    local command = { "sh", "-c", LAUNCH, "sh", bin }
     for _, a in ipairs(args or {}) do
       command[#command + 1] = a
     end
-    if command[2] == "edit" or command[2] == "new" or command[2] == "capture" then
+    local sub = (args or {})[1]
+    if sub == "edit" or sub == "new" or sub == "capture" then
       rows = layout.EDIT_ROWS
     end
     ui.float(ctx, M.LABEL, command, cwd or settings.home, bounds(ctx, rows or 0))

@@ -192,35 +192,48 @@ impl App {
                 Err(e) => self.fail(e),
             },
             Done::Saved { name, result } => match result {
-                Ok(_) => {
+                Ok(reload) => {
                     if let Screen::Edit(ed) = &mut self.screen {
+                        ed.pending = false;
                         ed.previous = Some(name.clone());
-                        ed.message = Some((format!("Saved {name}"), false));
+                        ed.message = Some(match reload {
+                            None => (format!("Saved {name}"), false),
+                            Some(e) => (format!("Saved {name}, but Rex did not reload: {e}"), true),
+                        });
                     }
                     self.select_after_list = Some(name);
                     self.refresh();
                 }
                 Err(e) => {
                     if let Screen::Edit(ed) = &mut self.screen {
+                        ed.pending = false;
                         ed.message = Some((e, true));
                     }
                 }
             },
             Done::Removed { name, result } => match result {
-                Ok(_) => {
-                    self.status = Some((format!("Removed {name}"), false));
+                Ok(reload) => {
+                    self.status = Some(match reload {
+                        None => (format!("Removed {name}"), false),
+                        Some(e) => (format!("Removed {name}, but Rex did not reload: {e}"), true),
+                    });
                     self.back_to_list();
                 }
                 Err(e) => {
                     if let Screen::Edit(ed) = &mut self.screen {
+                        ed.pending = false;
                         ed.message = Some((e, true));
                     }
                 }
             },
-            Done::Detected(result) => {
+            Done::Detected { root, result } => {
+                let home = &self.home;
                 let Screen::Edit(ed) = &mut self.screen else {
                     return;
                 };
+                if root != spec::expand(&non_empty(ed.value("/root"), "~"), home) {
+                    return;
+                }
                 ed.detecting = false;
                 let Ok(v) = result else { return };
                 ed.detected = v["commands"].as_array().cloned().unwrap_or_default();
@@ -319,10 +332,14 @@ impl App {
         let Screen::Edit(ed) = &mut self.screen else {
             return;
         };
+        if ed.pending {
+            return;
+        }
         if ed.name.trim().is_empty() {
             ed.message = Some(("Give the workspace a name".into(), true));
             return;
         }
+        ed.pending = true;
         ed.message = Some(("Saving…".into(), false));
         let job = Job::Save {
             name: ed.name.trim().into(),
@@ -336,6 +353,9 @@ impl App {
         let Screen::Edit(ed) = &mut self.screen else {
             return;
         };
+        if ed.pending {
+            return;
+        }
         let Some(name) = ed.previous.clone() else {
             return;
         };
@@ -347,6 +367,7 @@ impl App {
             ));
             return;
         }
+        ed.pending = true;
         self.spawn(Job::Remove { name });
     }
 

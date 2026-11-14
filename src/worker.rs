@@ -32,19 +32,21 @@ pub enum Done {
     },
     Saved {
         name: String,
-        result: Result<Value, String>,
+        result: Result<Option<String>, String>,
     },
     Removed {
         name: String,
+        result: Result<Option<String>, String>,
+    },
+    Detected {
+        root: String,
         result: Result<Value, String>,
     },
-    Detected(Result<Value, String>),
 }
 
-fn reloaded(result: Result<Value, String>) -> Result<Value, String> {
-    let value = result?;
-    rex::reload()?;
-    Ok(value)
+fn reloaded(result: Result<Value, String>) -> Result<Option<String>, String> {
+    result?;
+    Ok(rex::reload().err())
 }
 
 fn run(job: Job) -> Done {
@@ -66,7 +68,10 @@ fn run(job: Job) -> Done {
             let result = reloaded(rex::remove(&name));
             Done::Removed { name, result }
         }
-        Job::Detect { root, name } => Done::Detected(rex::detect(&root, &name)),
+        Job::Detect { root, name } => {
+            let result = rex::detect(&root, &name);
+            Done::Detected { root, result }
+        }
     }
 }
 

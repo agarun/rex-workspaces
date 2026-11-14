@@ -169,6 +169,7 @@ pub struct Editor {
     pub message: Option<(String, bool)>,
     pub fresh: bool,
     pub confirm_remove: bool,
+    pub pending: bool,
     pub recording: bool,
 }
 
@@ -190,6 +191,7 @@ impl Editor {
             message: None,
             fresh,
             confirm_remove: false,
+            pending: false,
             recording: false,
         };
         editor.focus_row(1);
@@ -421,11 +423,7 @@ impl Editor {
         let v = if value.is_empty() {
             None
         } else if number {
-            value
-                .parse::<f64>()
-                .ok()
-                .map(|n| json!(n))
-                .or(Some(json!(value)))
+            Some(number_or_text(value))
         } else {
             Some(json!(value))
         };
@@ -1046,6 +1044,16 @@ pub fn shortcut(k: KeyEvent) -> Option<String> {
         .collect();
     parts.push(key);
     Some(parts.join("+"))
+}
+
+fn number_or_text(value: String) -> Value {
+    if let Ok(n) = value.parse::<u64>() {
+        return json!(n);
+    }
+    match value.parse::<f64>() {
+        Ok(n) if !value.ends_with('.') => json!(n),
+        _ => json!(value),
+    }
 }
 
 #[cfg(test)]

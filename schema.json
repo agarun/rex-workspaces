@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "rex-workspaces",
+  "type": "object",
+  "required": ["workspaces"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "workspaces": {
+      "type": "object",
+      "description": "Each key is a workspace name. The name is also the Rex session's label.",
+      "additionalProperties": { "$ref": "#/definitions/workspace" }
+    }
+  },
+  "definitions": {
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "root": { "type": "string", "description": "Folder that every cwd is relative to. ~ works. Default: your home folder." },
+        "key": { "type": "string", "description": "Shortcut that opens this workspace, such as ctrl+cmd+1." },
+        "focus": { "type": "string", "description": "Name of the tab to show when the session is created. Default: the first tab." },
+        "switch": { "type": "boolean", "default": true, "description": "Switch the app to the session after start." },
+        "servers_in": { "enum": ["float", "tab"], "default": "float", "description": "Put servers in floating panes, or side by side in a tab named servers." },
+        "stop_timeout": { "type": "number", "minimum": 0, "default": 5, "description": "Seconds to wait after Ctrl-C before closing a server anyway." },
+        "servers": { "type": "array", "items": { "$ref": "#/definitions/server" }, "description": "Long-running commands. Stop presses Ctrl-C in each." },
+        "tabs": { "type": "array", "items": { "$ref": "#/definitions/tab" }, "description": "Tabs to open. Default: one shell at root." },
+        "hooks": { "$ref": "#/definitions/hooks" }
+      }
+    },
+    "server": {
+      "type": "object",
+      "required": ["label", "cmd"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string", "description": "Pane label. Unique within the workspace." },
+        "cmd": { "type": "string", "description": "Command typed into the pane's shell." },
+        "cwd": { "type": "string", "description": "Folder, relative to root." },
+        "minimized": { "type": "boolean", "default": true, "description": "Start the floating pane minimized." },
+        "bounds": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0, "maximum": 1 },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "[x, y, width, height] of the floating pane, as fractions of the window. Default: stacked on the right."
+        }
+      }
+    },
+    "tab": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "split": { "enum": ["right", "down"], "default": "right", "description": "Panes side by side, or stacked." },
+        "panes": { "type": "array", "items": { "$ref": "#/definitions/pane" } }
+      }
+    },
+    "pane": {
+      "type": "object",
+      "required": ["label"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string" },
+        "cwd": { "type": "string", "description": "Folder, relative to root." },
+        "cmd": { "type": "string", "description": "Command typed into the shell when the pane opens." }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Shell commands run in root. Each has 20 seconds; a failing before_start stops the start.",
+      "properties": {
+        "before_start": { "type": "string" },
+        "after_start": { "type": "string" },
+        "before_stop": { "type": "string" },
+        "after_stop": { "type": "string" }
+      }
+    }
+  }
+}

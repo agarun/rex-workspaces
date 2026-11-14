@@ -1,0 +1,224 @@
+local M = {}
+
+local TERMINAL = "com.superlogical.terminal"
+
+local function decode_file_url(url)
+  local without_host = url:gsub("^file://[^/]*", "")
+  return (without_host:gsub("%%(%x%x)", function(h)
+    return string.char(tonumber(h, 16))
+  end))
+end
+
+function M.new(rex)
+  local api = {}
+
+  local function call(method, args)
+    local r, err = rex.call(method, args or {})
+    if r == nil and err ~= nil then
+      error(method .. ": " .. tostring(err), 0)
+    end
+    return r or {}
+  end
+
+  local function terminal(sid, block_id, method, args)
+    return call(TERMINAL .. "." .. method, { session_id = sid, block_id = block_id, args = args or {} })
+  end
+
+  local function attach(sid)
+    call("session.attach", { session_id = sid })
+  end
+
+  function api.sessions()
+    return call("session.list").sessions or {}
+  end
+
+  function api.create_session(label, windows)
+    return call("session.create", { label = label, initial_windows = windows }).session_id
+  end
+
+  function api.view(sid)
+    attach(sid)
+    return call("session.view", { session_id = sid })
+  end
+
+  function api.new_window(sid, label, layout)
+    return call("session.new_window", { session_id = sid, window_label = label, layout = layout, focus = false })
+  end
+
+  function api.new_split(sid, anchor_id, layout)
+    return call("session.new_split", {
+      session_id = sid,
+      anchor_id = anchor_id,
+      direction = "horizontal",
+      side = "after",
+      layout = layout,
+      focus = false,
+    })
+  end
+
+  function api.new_layer(sid, window_id, layout, bounds, focus)
+    attach(sid)
+    return call("session.new_layer", {
+      session_id = sid,
+      window_id = window_id,
+      layout = layout,
+      bounds = bounds,
+      focus = focus or false,
+    })
+  end
+
+  function api.minimize(sid, layer_id)
+    call("session.set_layer_state", { session_id = sid, layer_id = layer_id, state = "minimized" })
+  end
+
+  function api.focus_window(sid, window_id)
+    call("session.focus_window", { session_id = sid, window_id = window_id })
+  end
+
+  function api.process(sid, block_id)
+    return terminal(sid, block_id, "process")
+  end
+
+  function api.term_size(sid, block_id)
+    local ok, r = pcall(terminal, sid, block_id, "size")
+    return ok and r or nil
+  end
+
+  function api.write(sid, block_id, data)
+    terminal(sid, block_id, "write", { data = data })
+  end
+
+  function api.pwd(sid, block_id)
+    local ok, r = pcall(terminal, sid, block_id, "pwd")
+    local url = ok and r.pwd or nil
+    if url == nil or url == "" then
+      return nil
+    end
+    return decode_file_url(url)
+  end
+
+  function api.close_block(sid, block_id)
+    call("block.close", { session_id = sid, block_id = block_id })
+  end
+
+  function api.resize_layer(sid, layer_id, bounds)
+    call("session.resize_layer", { session_id = sid, layer_id = layer_id, bounds = bounds })
+  end
+
+  function api.close_layer(sid, layer_id)
+    call("session.close_layer", { session_id = sid, layer_id = layer_id })
+  end
+
+  function api.destroy(sid)
+    call("session.destroy", { session_id = sid })
+  end
+
+  local function has_app(ctx)
+    if ctx and (ctx.origin == "key" or ctx.origin == "palette") then
+      return true
+    end
+    local r = rex.call("client.list", {})
+    for _, c in ipairs((r and r.clients) or {}) do
+      if c.info and c.info.kind == "app" then
+        return true
+      end
+    end
+    return false
+  end
+
+  function api.select(sid, ctx)
+    if not has_app(ctx) then
+      return false
+    end
+    return (pcall(rex.client.queue, "session.select", { session_id = sid }))
+  end
+
+  function api.open_palette(ctx)
+    if not has_app(ctx) then
+      return false
+    end
+    return (pcall(rex.client.queue, "client.palette.toggle"))
+  end
+
+  function api.sh(script, opts)
+    local shell = os.getenv("SHELL") or "/bin/sh"
+    local r, err = rex.exec({ shell, "-lc", script }, opts or {})
+    if r == nil then
+      error(err, 0)
+    end
+    return r
+  end
+
+  function api.sleep(seconds)
+    rex.exec({ "sleep", tostring(seconds) })
+  end
+
+  function api.read(path)
+    local f = io.open(path, "r")
+    if not f then
+      return nil
+    end
+    local text = f:read("*a")
+    f:close()
+    return text
+  end
+
+  function api.exists(path)
+    local f = io.open(path, "r")
+    if f then
+      f:close()
+    end
+    return f ~= nil
+  end
+
+  function api.find(root, names, depth)
+    local argv = { "find", root, "-maxdepth", tostring(depth) }
+    local pruned = { "node_modules", ".git", "target", "dist", "build", ".venv", "vendor" }
+    argv[#argv + 1] = "("
+    for i, name in ipairs(pruned) do
+      if i > 1 then
+        argv[#argv + 1] = "-o"
+      end
+      argv[#argv + 1] = "-name"
+      argv[#argv + 1] = name
+    end
+    argv[#argv + 1] = ")"
+    argv[#argv + 1] = "-prune"
+    argv[#argv + 1] = "-o"
+    argv[#argv + 1] = "("
+    for i, name in ipairs(names) do
+      if i > 1 then
+        argv[#argv + 1] = "-o"
+      end
+      argv[#argv + 1] = "-name"
+      argv[#argv + 1] = name
+    end
+    argv[#argv + 1] = ")"
+    argv[#argv + 1] = "-print"
+    local r = rex.exec(argv, { timeout = 10 })
+    local files = {}
+    for line in ((r and r.stdout) or ""):gmatch("[^\n]+") do
+      files[#files + 1] = line
+    end
+    table.sort(files)
+    return files
+  end
+
+  function api.write_file(path, text)
+    local tmp = path .. ".tmp"
+    local f, err = io.open(tmp, "w")
+    if not f then
+      error(err, 0)
+    end
+    f:write(text)
+    f:close()
+    local ok, rename_err = os.rename(tmp, path)
+    if not ok then
+      error(rename_err, 0)
+    end
+  end
+
+  return api
+end
+
+return M

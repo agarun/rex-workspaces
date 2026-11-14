@@ -1,0 +1,8 @@
+.test/
+*.tmp
+/bin/
+/target/
+/dist/
+examples/my-project/.last-*
+examples/my-project/.history
+/.stash/

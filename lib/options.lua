@@ -32,7 +32,7 @@ end
 function M.resolve(opts, module_dir, home)
   opts = opts or {}
   local confdir = path.dirname(module_dir)
-  local defaults = { confdir .. "/workspaces.json", confdir .. "/workspaces.local.json" }
+  local defaults = { confdir .. "/workspaces.json" }
   local files = {}
   for i, f in ipairs(opts.files or defaults) do
     files[i] = path.expand(f, home)

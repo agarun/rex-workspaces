@@ -116,11 +116,13 @@ local function pane(raw, where, base, home, errs)
     return nil
   end
   local cwd = typed(errs, where .. ".cwd", raw.cwd, "string")
+  local wt = typed(errs, where .. ".worktree", raw.worktree, "string")
   return {
     label = raw.label,
     cmd = typed(errs, where .. ".cmd", raw.cmd, "string"),
     cwd = path.join(base, path.expand(cwd, home)),
     stop = stop_value(errs, where .. ".stop", raw.stop),
+    worktree = wt ~= "" and wt or nil,
   }
 end
 
@@ -182,8 +184,8 @@ node = function(raw, where, base, home, errs)
   if type(raw) ~= "table" or raw.panes == nil then
     return pane(raw, where, base, home, errs)
   end
-  if raw.label ~= nil or raw.cmd ~= nil or raw.cwd ~= nil or raw.stop ~= nil then
-    report(errs, where, "a group has only split and panes; put label, cwd, cmd and stop on its panes")
+  if raw.label ~= nil or raw.cmd ~= nil or raw.cwd ~= nil or raw.stop ~= nil or raw.worktree ~= nil then
+    report(errs, where, "a group has only split and panes; put label, cwd, cmd, stop and worktree on its panes")
   end
   local g = { split = split_of(raw, where, errs), panes = children(raw, where, base, home, errs) }
   if #g.panes == 0 then

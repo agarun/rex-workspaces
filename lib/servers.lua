@@ -124,6 +124,7 @@ function M.status(api, sid, ws)
     out[i] = {
       label = s.label,
       cmd = s.cmd,
+      worktree = s.worktree,
       open = b ~= nil,
       up = b ~= nil and proc.is_busy(api, sid, b.block_id),
     }

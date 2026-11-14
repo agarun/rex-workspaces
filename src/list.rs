@@ -25,6 +25,10 @@ fn servers(ws: &Value) -> &[Value] {
     ws["servers"].as_array().map_or(&[], Vec::as_slice)
 }
 
+fn shown_worktree(server: &Value) -> Option<&str> {
+    server["worktree"].as_str().filter(|w| *w != "main")
+}
+
 fn running(ws: &Value) -> bool {
     ws["running"].as_bool().unwrap_or(false)
 }
@@ -175,11 +179,15 @@ fn draw_card(
             };
             let label = s["label"].as_str().unwrap_or("");
             let cmd = s["cmd"].as_str().unwrap_or("").to_string();
-            lines.push(Line::from(vec![
+            let mut spans = vec![
                 dot,
                 Span::styled(format!(" {label:<width$}  "), text()),
                 Span::styled(cmd, muted()),
-            ]));
+            ];
+            if let Some(wt) = shown_worktree(s) {
+                spans.push(Span::styled(format!("  ⎇ {wt}"), faint()));
+            }
+            lines.push(Line::from(spans));
         }
     }
     f.render_widget(Paragraph::new(lines), inner);

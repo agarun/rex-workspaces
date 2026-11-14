@@ -361,6 +361,13 @@ impl App {
         self.spawn(job);
     }
 
+    fn duplicate(&mut self) {
+        let taken = self.names();
+        if let Screen::Edit(ed) = &mut self.screen {
+            ed.duplicate(&taken);
+        }
+    }
+
     fn remove(&mut self) {
         let Screen::Edit(ed) = &mut self.screen else {
             return;
@@ -481,6 +488,7 @@ impl App {
             "cancel" => self.back_to_list(),
             "browse" => self.open_picker(),
             "remove" => self.remove(),
+            "duplicate" => self.duplicate(),
             _ => {}
         }
     }
@@ -615,6 +623,7 @@ impl App {
         match k.code {
             KeyCode::Char('s') if ctrl => self.save(),
             KeyCode::Char('o') if ctrl => self.open_picker(),
+            KeyCode::Char('d') if ctrl => self.duplicate(),
             KeyCode::Char('x') if ctrl => ed.remove_focused(),
             KeyCode::Char('u') if ctrl => ed.clear(),
             KeyCode::Char('w') if ctrl => ed.delete_word(),

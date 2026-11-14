@@ -252,7 +252,11 @@ impl Editor {
                     true,
                     "Start the floating pane tucked away",
                 )
-                .tree(&format!("{t}{}", branch(true))),
+                .tree(&format!("{t}{}", branch(false))),
+            );
+            rows.push(
+                Row::text("Worktree", format!("{p}/worktree"), "None", WORKTREE_HINT)
+                    .tree(&format!("{t}{}", branch(true))),
             );
         }
         let unused: Vec<(usize, &Value)> = self
@@ -618,6 +622,27 @@ impl Editor {
         self.side(self.focus);
     }
 
+    pub fn duplicate(&mut self, taken: &[String]) {
+        let Some(from) = self.previous.take() else {
+            return;
+        };
+        let base = format!("{from} copy");
+        let mut name = base.clone();
+        let mut n = 2;
+        while taken.contains(&name) {
+            name = format!("{base} {n}");
+            n += 1;
+        }
+        self.name = name;
+        spec::set(&mut self.spec, SHORTCUT, None);
+        self.confirm_remove = false;
+        self.fresh = false;
+        self.message = Some((
+            format!("Copy of {from}, not saved yet. Set a worktree on its servers and panes."),
+            false,
+        ));
+    }
+
     fn unique_label(&self, base: &str) -> String {
         let taken = |l: &str| {
             self.spec["servers"]
@@ -710,6 +735,10 @@ impl Editor {
             out.push(("browse", Button::new("Browse", "ctrl+o", Tone::Normal)));
         }
         if self.previous.is_some() {
+            out.push((
+                "duplicate",
+                Button::new("Duplicate", "ctrl+d", Tone::Normal),
+            ));
             out.push(("remove", Button::new(remove, "", Tone::Danger)));
         }
         out
@@ -912,6 +941,8 @@ impl Editor {
 }
 
 const SPLITS: &[&str] = &["right", "down", "grid"];
+const WORKTREE_HINT: &str =
+    "Run in this git worktree of the folder's repository: a branch, folder name or path";
 const SPLIT_HINT: &str = "Panes side by side, stacked, or in a grid";
 
 fn pane_rows(s: &Value, rows: &mut Vec<Row>, list: &str, indent: &str) {
@@ -953,7 +984,11 @@ fn pane_rows(s: &Value, rows: &mut Vec<Row>, list: &str, indent: &str) {
                 "Just a shell",
                 "Typed in when the pane opens",
             )
-            .tree(&format!("{inner}{}", branch(true))),
+            .tree(&format!("{inner}{}", branch(false))),
+        );
+        rows.push(
+            Row::text("Worktree", format!("{q}/worktree"), "None", WORKTREE_HINT)
+                .tree(&format!("{inner}{}", branch(true))),
         );
     }
     rows.push(

@@ -5,6 +5,7 @@ local lifecycle = require("rex-workspaces.lib.lifecycle")
 local path = require("rex-workspaces.lib.path")
 local spec = require("rex-workspaces.lib.spec")
 local store = require("rex-workspaces.lib.store")
+local worktree = require("rex-workspaces.lib.worktree")
 
 local M = {}
 
@@ -57,12 +58,16 @@ function M.new(rex, api, ui, settings)
     error('no workspace named "' .. tostring(name) .. '"' .. why, 0)
   end
 
+  local function placed(ws)
+    return worktree.apply(api, ws, settings.home)
+  end
+
   local verbs = {
     open = function(ws, ctx)
-      return lifecycle.open(api, L, ws, { ctx = ctx })
+      return lifecycle.open(api, L, placed(ws), { ctx = ctx })
     end,
     start = function(ws, ctx, args)
-      return lifecycle.start(api, L, ws, { ctx = ctx, select = args and args.select })
+      return lifecycle.start(api, L, placed(ws), { ctx = ctx, select = args and args.select })
     end,
     stop = function(ws)
       return lifecycle.stop(api, ws)
@@ -71,7 +76,7 @@ function M.new(rex, api, ui, settings)
       return lifecycle.close(api, ws)
     end,
     restart = function(ws, ctx, args)
-      return lifecycle.restart(api, L, ws, { ctx = ctx, select = args and args.select })
+      return lifecycle.restart(api, L, placed(ws), { ctx = ctx, select = args and args.select })
     end,
   }
 

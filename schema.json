@@ -46,6 +46,7 @@
         "cwd": { "type": "string", "description": "Folder, relative to root." },
         "stop": { "$ref": "#/definitions/stop", "description": "What Stop does to this server. Default: the workspace's stop.servers." },
         "minimized": { "type": "boolean", "default": true, "description": "Start the floating pane minimized." },
+        "worktree": { "type": "string", "description": "Run in this git worktree of the folder's repository instead of the folder itself: a branch, a worktree folder name, or a path. The same subfolder is used in the worktree." },
         "bounds": {
           "type": "array",
           "items": { "type": "number", "minimum": 0, "maximum": 1 },
@@ -89,7 +90,8 @@
         "label": { "type": "string" },
         "cwd": { "type": "string", "description": "Folder, relative to root." },
         "cmd": { "type": "string", "description": "Command typed into the shell when the pane opens." },
-        "stop": { "$ref": "#/definitions/stop", "description": "What Stop does to this pane. Default: the workspace's stop.panes." }
+        "stop": { "$ref": "#/definitions/stop", "description": "What Stop does to this pane. Default: the workspace's stop.panes." },
+        "worktree": { "type": "string", "description": "Run in this git worktree of the folder's repository instead of the folder itself: a branch, a worktree folder name, or a path. The same subfolder is used in the worktree." }
       }
     },
     "hooks": {

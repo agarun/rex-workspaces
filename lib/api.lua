@@ -207,6 +207,22 @@ function M.new(rex)
     return real or path
   end
 
+  api.realpath = resolve
+
+  function api.worktrees(root)
+    local script = "git rev-parse --show-toplevel --show-prefix && git worktree list --porcelain"
+    local r = rex.exec({ "sh", "-c", script }, { cwd = root, timeout = 5 })
+    return r and r.ok and r.stdout or nil
+  end
+
+  function api.has_branch(dir, branch)
+    local r = rex.exec(
+      { "git", "-C", dir, "rev-parse", "--verify", "--quiet", "refs/heads/" .. branch },
+      { timeout = 5 }
+    )
+    return r ~= nil and r.ok == true
+  end
+
   function api.write_file(path, text)
     path = resolve(path)
     local tmp = path .. ".tmp"

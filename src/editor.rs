@@ -1122,6 +1122,18 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_is_a_new_unsaved_copy_without_the_shortcut() {
+        let spec = json!({ "key": "ctrl+cmd+1", "servers": [{ "label": "api", "cmd": "x" }] });
+        let mut ed = Editor::new("shop".into(), Some("shop".into()), spec);
+        ed.duplicate(&["shop".into(), "shop copy".into()]);
+        assert_eq!(ed.name, "shop copy 2");
+        assert_eq!(ed.previous, None);
+        assert_eq!(ed.spec.get("key"), None);
+        assert_eq!(ed.spec["servers"][0]["label"], "api");
+        assert!(ed.buttons().iter().all(|(a, _)| *a != "duplicate"));
+    }
+
+    #[test]
     fn shortcuts_use_rex_spelling() {
         let ctrl_cmd = KeyModifiers::CONTROL | KeyModifiers::SUPER;
         assert_eq!(
@@ -1137,6 +1149,61 @@ mod tests {
             press(KeyCode::Up, KeyModifiers::ALT).as_deref(),
             Some("alt+up")
         );
+    }
+
+    fn labels(ed: &Editor) -> Vec<String> {
+        ed.rows().iter().map(|r| r.label.clone()).collect()
+    }
+
+    #[test]
+    fn groups_show_their_panes_and_take_new_ones() {
+        let spec = json!({ "tabs": [{ "name": "t", "split": "grid", "panes": [
+            { "label": "main" },
+            { "split": "down", "panes": [{ "label": "a" }, { "label": "b" }] }
+        ] }] });
+        let mut ed = Editor::new("w".into(), Some("w".into()), spec);
+        let rows = labels(&ed);
+        let at = |l: &str| rows.iter().position(|r| r == l).unwrap();
+        assert!(at("Layout") < at("Group"));
+        assert_eq!(rows.iter().filter(|r| *r == "Pane").count(), 3);
+        assert_eq!(rows.iter().filter(|r| *r == "+ Add pane").count(), 2);
+        ed.run(Act::AddPane("/tabs/0/panes/1/panes".into()));
+        assert_eq!(
+            ed.spec["tabs"][0]["panes"][1]["panes"][2]["label"],
+            "pane 3"
+        );
+        ed.run(Act::RemovePane("/tabs/0/panes".into(), 1));
+        assert_eq!(spec::len(&ed.spec, "/tabs/0/panes"), 1);
+    }
+
+    #[test]
+    fn layout_cycles_through_grid() {
+        let spec = json!({ "tabs": [{ "name": "t", "panes": [{ "label": "a" }] }] });
+        let mut ed = Editor::new("w".into(), Some("w".into()), spec);
+        ed.focus = labels(&ed).iter().position(|r| r == "Layout").unwrap();
+        ed.activate();
+        ed.activate();
+        assert_eq!(ed.spec["tabs"][0]["split"], "grid");
+        ed.activate();
+        assert!(ed.spec["tabs"][0].get("split").is_none());
+    }
+
+    #[test]
+    fn stop_rows_set_the_workspace_and_keep_pane_overrides() {
+        let spec =
+            json!({ "tabs": [{ "name": "t", "panes": [{ "label": "a", "stop": "leave" }] }] });
+        let mut ed = Editor::new("w".into(), Some("w".into()), spec);
+        let rows = labels(&ed);
+        ed.focus = rows.iter().position(|r| r == "Stop panes").unwrap();
+        ed.activate();
+        assert_eq!(ed.spec["stop"]["panes"], "interrupt");
+        ed.focus = rows.iter().position(|r| r == "Stop servers").unwrap();
+        ed.activate();
+        ed.activate();
+        assert_eq!(ed.spec["stop"]["servers"], "leave");
+        ed.activate();
+        assert!(ed.spec["stop"].get("servers").is_none());
+        assert_eq!(ed.spec["tabs"][0]["panes"][0]["stop"], "leave");
     }
 
     #[test]

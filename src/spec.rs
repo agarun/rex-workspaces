@@ -105,3 +105,16 @@ pub fn contract(path: &str, home: &str) -> String {
         None => path.to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_name_avoids_the_login_name() {
+        let taken = vec!["untitled".to_string()];
+        assert_eq!(default_name("shop", "/Users/me", &taken), "shop");
+        assert_eq!(default_name("me", "/Users/me", &[]), "untitled");
+        assert_eq!(default_name("", "/Users/me", &taken), "untitled 2");
+    }
+}

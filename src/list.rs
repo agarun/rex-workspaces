@@ -293,3 +293,67 @@ fn first_workspace(
     draw_button(f, rect, b, hovered, focus.map(|n| n == i));
     hits.add(rect, Target::Button(i));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn save_as_new_follows_new() {
+        let labels: Vec<String> = buttons(None, true)
+            .into_iter()
+            .map(|(_, b)| b.label)
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                "Open",
+                "Start",
+                "Restart",
+                "Close",
+                "Edit",
+                "New",
+                "Save as new",
+                "Filter"
+            ]
+        );
+    }
+
+    fn serve(ws: Value) -> (&'static str, bool) {
+        let b = buttons(Some(&ws), true);
+        (b[1].0, b[1].1.enabled)
+    }
+
+    #[test]
+    fn stop_toggle_follows_servers_then_panes() {
+        let servers = json!([{ "label": "web" }]);
+        let up = json!({ "running": true, "servers_up": 1, "servers": servers });
+        assert_eq!(serve(up), ("stop", true));
+        let idle = json!({ "running": true, "servers_up": 0, "servers": servers });
+        assert_eq!(serve(idle), ("start", true));
+        let panes = json!({ "running": true, "stops_panes": true });
+        assert_eq!(serve(panes), ("stop", true));
+        assert_eq!(serve(json!({ "stops_panes": true })), ("start", false));
+        assert_eq!(serve(json!({ "running": true })), ("start", false));
+    }
+
+    #[test]
+    fn worktree_shows_unless_main() {
+        assert_eq!(
+            shown_worktree(&json!({ "worktree": "feat-x" })),
+            Some("feat-x")
+        );
+        assert_eq!(shown_worktree(&json!({ "worktree": "main" })), None);
+        assert_eq!(shown_worktree(&json!({})), None);
+    }
+
+    #[test]
+    fn status_label_is_lowercase() {
+        let status = |ws: Value| state(&ws).1;
+        assert_eq!(status(json!({})), "stopped");
+        assert_eq!(status(json!({ "running": true })), "open");
+        let ws = json!({ "running": true, "servers_up": 1, "servers": [{}, {}] });
+        assert_eq!(status(ws), "1 of 2 running");
+    }
+}

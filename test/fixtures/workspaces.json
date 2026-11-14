@@ -6,11 +6,29 @@
       "focus": "logs",
       "servers": [
         { "label": "api", "cmd": "sh {{FIX}}/server.sh api {{OUT}}" },
-        { "label": "web", "cwd": "web", "cmd": "sh {{FIX}}/server.sh web {{OUT}}", "minimized": false }
+        {
+          "label": "web",
+          "cwd": "web",
+          "cmd": "sh {{FIX}}/server.sh web {{OUT}}",
+          "minimized": false
+        }
       ],
       "tabs": [
-        { "name": "agents", "panes": [{ "label": "one" }, { "label": "two", "cwd": "web" }] },
-        { "name": "logs", "split": "down", "panes": [{ "label": "tail", "cmd": "echo hi" }] }
+        {
+          "name": "agents",
+          "split": "grid",
+          "panes": [
+            { "label": "one" },
+            { "label": "two", "cwd": "web" },
+            { "label": "three" },
+            { "label": "four" }
+          ]
+        },
+        {
+          "name": "logs",
+          "split": "down",
+          "panes": [{ "label": "tail", "cmd": "echo hi" }]
+        }
       ],
       "hooks": {
         "before_start": "echo before_start >> {{OUT}}/hooks.log",
@@ -22,7 +40,9 @@
     "beta": {
       "root": "{{ROOT}}",
       "servers_in": "tab",
-      "servers": [{ "label": "worker", "cmd": "sh {{FIX}}/server.sh worker {{OUT}}" }]
+      "servers": [
+        { "label": "worker", "cmd": "sh {{FIX}}/server.sh worker {{OUT}}" }
+      ]
     }
   }
 }

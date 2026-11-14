@@ -11,6 +11,7 @@ table.insert(package.loaders, 2, function(name)
   return chunk
 end)
 
+local capture = require("rex-workspaces.lib.capture")
 local config = require("rex-workspaces.lib.config")
 local detect = require("rex-workspaces.lib.detect")
 local json = require("rex-workspaces.lib.json")
@@ -20,7 +21,9 @@ local options = require("rex-workspaces.lib.options")
 local path = require("rex-workspaces.lib.path")
 local proc = require("rex-workspaces.lib.proc")
 local spec = require("rex-workspaces.lib.spec")
+local stop = require("rex-workspaces.lib.stop")
 local store = require("rex-workspaces.lib.store")
+local worktree = require("rex-workspaces.lib.worktree")
 
 local pass, fail = 0, 0
 
@@ -74,6 +77,13 @@ test("path helpers", function()
   eq(path.relative("/r/web/x", "/r"), "web/x")
   eq(path.relative("/r", "/r"), "")
   eq(path.basename("/a/b/"), "b")
+end)
+
+test("default names avoid the login name", function()
+  eq(spec.default_name("shop", HOME, {}), "shop")
+  eq(spec.default_name("u", HOME, {}), "untitled")
+  eq(spec.default_name(nil, HOME, {}), "untitled")
+  eq(spec.default_name("", HOME, { untitled = {}, ["untitled 2"] = {} }), "untitled 3")
 end)
 
 test("slug", function()
@@ -175,6 +185,69 @@ test("validation messages", function()
   contains(errs, "!!: name needs at least one letter or digit")
 end)
 
+test("grid and nested groups", function()
+  local cfg, errs = build({
+    app = {
+      root = "/r",
+      tabs = {
+        { name = "g", split = "grid", panes = { { label = "a" }, { label = "b" }, { label = "c" }, { label = "d" } } },
+        { name = "m", panes = { { label = "main" }, { split = "down", panes = { { label = "x", cwd = "web" } } } } },
+      },
+    },
+  })
+  eq(#errs, 0, "errors")
+  local tabs = cfg.by_name.app.tabs
+  eq(tabs[1].split, "grid")
+  eq(tabs[2].panes[2].split, "down")
+  eq(tabs[2].panes[2].panes[1].cwd, "/r/web")
+
+  local _, bad = build({
+    app = {
+      tabs = {
+        { panes = { { split = "grid", panes = {} }, { label = "l", panes = { { label = "p" } } } } },
+        { panes = { { split = "sideways", panes = { { label = "p" } } }, { split = "down", panes = { {} } } } },
+      },
+    },
+  })
+  contains(bad, "app.tabs[1].panes[1].panes: needs at least one pane")
+  contains(bad, "app.tabs[1].panes[2]: a group has only split and panes")
+  contains(bad, 'app.tabs[2].panes[1].split: must be "right", "down" or "grid"')
+  contains(bad, "app.tabs[2].panes[2].panes[1]: label is required")
+end)
+
+test("stop settings: defaults, overrides, errors", function()
+  local cfg, errs = build({
+    app = {
+      stop = { panes = "interrupt" },
+      servers = { { label = "s", cmd = "x", stop = "leave" } },
+      tabs = { { panes = { { label = "p", stop = "close" }, { label = "q" } } } },
+    },
+  })
+  eq(#errs, 0, "errors")
+  local ws = cfg.by_name.app
+  eq(ws.stop, { servers = "close", panes = "interrupt" })
+  eq(ws.servers[1].stop, "leave")
+  eq(ws.tabs[1].panes[1].stop, "close")
+  eq(spec.stops_panes(ws), true)
+  eq(build({ plain = {} }).by_name.plain.stop, { servers = "close", panes = "leave" })
+  eq(spec.stops_panes(build({ plain = {} }).by_name.plain), false)
+
+  local _, bad = build({
+    app = {
+      stop = { servers = "kill", pane = "close" },
+      servers = { { label = "s", cmd = "x", stop = "pause" } },
+      tabs = { { panes = { { label = "p", stop = 1 }, { stop = "close", panes = { { label = "g" } } } } } },
+    },
+    other = { stop = "close" },
+  })
+  contains(bad, 'app.stop.servers: must be "close", "interrupt" or "leave"')
+  contains(bad, 'app.stop.pane: unknown key; use "servers" or "panes"')
+  contains(bad, "app.servers[1].stop: must be")
+  contains(bad, "app.tabs[1].panes[1].stop: must be")
+  contains(bad, "app.tabs[1].panes[2]: a group has only split and panes")
+  contains(bad, "other.stop: must be an object")
+end)
+
 test("slug clashes are reported", function()
   local cfg, errs = build({ ["my-app"] = {}, ["my app"] = {} })
   eq(#cfg.list, 1)
@@ -199,7 +272,7 @@ end)
 
 test("options: defaults, keys, unknown names", function()
   local s, unknown = options.resolve(nil, "/c/rex/rex-workspaces", HOME)
-  eq(s.files, { "/c/rex/workspaces.json", "/c/rex/workspaces.local.json" })
+  eq(s.files, { "/c/rex/workspaces.json" })
   eq(s.keys.open, "cmd+o")
   eq(s.palette, true)
   eq(#unknown, 0)
@@ -230,6 +303,26 @@ test("layout splits panes evenly", function()
   eq(tree.b.b.block.label, "c")
   eq(tree.b.b.block.options.initial_input, "x\n")
   eq(layout.panes(L, { { label = "a" }, { label = "b" } }, "down").v, 0.5)
+end)
+
+test("grid rows fill left to right, top to bottom", function()
+  eq(layout.grid_rows(1), { 1 })
+  eq(layout.grid_rows(3), { 2, 1 })
+  eq(layout.grid_rows(4), { 2, 2 })
+  eq(layout.grid_rows(5), { 3, 2 })
+  eq(layout.grid_rows(9), { 3, 3, 3 })
+  local function p(l)
+    return { label = l }
+  end
+  local g = layout.panes(L, { p("a"), p("b"), p("c"), p("d") }, "grid")
+  eq(g.v, 0.5)
+  eq(g.a.h, 0.5)
+  eq({ g.a.a.block.label, g.a.b.block.label, g.b.a.block.label, g.b.b.block.label }, { "a", "b", "c", "d" })
+  local main = layout.panes(L, { p("m"), { split = "down", panes = { p("x"), p("y") } } }, "right")
+  eq(main.h, 0.5)
+  eq(main.b.v, 0.5)
+  eq(main.b.b.block.label, "y")
+  eq(layout.panes(L, { p("solo") }, "grid").block.label, "solo")
 end)
 
 test("float bounds stay inside the window", function()
@@ -497,6 +590,9 @@ local function fake(opts)
     log("select")
     return true
   end
+  function api.realpath(p)
+    return (p:gsub("^/r$", "/private/r"))
+  end
   function api.sh(script)
     log("sh", script)
     return opts.hook_result or { ok = true }
@@ -511,6 +607,18 @@ local function ws_of(raw)
   end
   return cfg.by_name.app
 end
+
+test("command reads a running program's arguments, not an idle shell's", function()
+  local api = fake({ busy = { b1 = true } })
+  local asked = {}
+  api.args = function(pid)
+    asked[#asked + 1] = pid
+    return pid == 9 and "node server.js" or nil
+  end
+  eq({ proc.command(api, "s", "b1") }, { "node server.js", true })
+  eq({ proc.command(api, "s", "b2") }, { nil, false })
+  eq(asked, { 9 }, "idle shells are not looked up")
+end)
 
 test("is_busy uses the process chain, not names", function()
   local api = fake({ busy = { b1 = true } })
@@ -628,6 +736,419 @@ test("status lists each server", function()
   eq(st.servers_up, 1)
   eq(st.servers[1].up, true)
   eq(st.servers[2].open, false)
+end)
+
+local function stop_windows(extra)
+  local windows = {
+    {
+      window_id = "w1",
+      label = "agents",
+      layers = {
+        {
+          kind = "tiled",
+          blocks = {
+            { block_id = "c1", label = "claude" },
+            { block_id = "c2", label = "claude" },
+            { block_id = "sh", label = "shell" },
+          },
+        },
+        { kind = "floating", layer_id = "L1", blocks = { { block_id = "s1", label = "web" } } },
+      },
+    },
+  }
+  for _, w in ipairs(extra or {}) do
+    windows[#windows + 1] = w
+  end
+  return windows
+end
+
+local function stop_ws(raw)
+  raw.servers = raw.servers or { { label = "web", cmd = "pnpm dev" } }
+  raw.tabs = raw.tabs
+    or {
+      { name = "agents", panes = { { label = "claude" }, { label = "claude" }, { label = "shell" } } },
+    }
+  return ws_of(raw)
+end
+
+local function stop_session(opts)
+  local api, calls, sessions = fake(opts)
+  sessions[1] = { label = "app", session_id = "s1" }
+  return api, calls
+end
+
+test("stop: panes interrupt busy panes only and keep them", function()
+  local api, calls = stop_session({ windows = stop_windows(), busy = { s1 = true, c1 = true, c2 = true } })
+  local r = lifecycle.stop(api, stop_ws({ stop = { panes = "interrupt" } }))
+  eq(calls, { "write s1 ^C", "write c1 ^C", "write c2 ^C", "sleep", "close_layer L1" })
+  eq(r.interrupted, { "claude", "claude" })
+  eq(r.closed, { "web" })
+  eq(r.message, "Stopped app: closed 1 server, interrupted 2 panes.")
+end)
+
+test("stop: servers interrupt keeps the pane, overrides win, close closes idle panes", function()
+  local api, calls = stop_session({ windows = stop_windows(), busy = { s1 = true, c1 = true } })
+  local ws = stop_ws({
+    stop = { servers = "interrupt", panes = "close" },
+    tabs = {
+      { name = "agents", panes = { { label = "claude", stop = "leave" }, { label = "claude" }, { label = "shell" } } },
+    },
+  })
+  local r = lifecycle.stop(api, ws)
+  eq(calls, { "write s1 ^C", "sleep", "close_block c2", "close_block sh" })
+  eq(r.message, "Stopped app: interrupted 1 server, closed 2 panes.")
+end)
+
+test("stop: servers leave does nothing to them", function()
+  local api, calls = stop_session({ windows = stop_windows(), busy = { s1 = true } })
+  local r = lifecycle.stop(api, stop_ws({ stop = { servers = "leave" } }))
+  eq(#calls, 0)
+  eq(r.message, "Nothing to stop in app.")
+end)
+
+test("stop: closing never empties the session", function()
+  local only = {
+    {
+      window_id = "w1",
+      label = "agents",
+      layers = {
+        { kind = "tiled", blocks = { { block_id = "c1", label = "claude" }, { block_id = "c2", label = "claude" } } },
+      },
+    },
+  }
+  local api, calls = stop_session({ windows = only, busy = { c1 = true, c2 = true } })
+  local ws = stop_ws({
+    servers = {},
+    stop = { panes = "close" },
+    tabs = { { name = "agents", panes = { { label = "claude" }, { label = "claude" } } } },
+  })
+  local r = lifecycle.stop(api, ws)
+  eq(calls, { "write c1 ^C", "write c2 ^C", "sleep", "close_block c2" })
+  eq(r.kept, { "claude" })
+  if not r.message:find("Kept claude open so the session is not left empty.", 1, true) then
+    error(r.message)
+  end
+end)
+
+test("stop: a window that holds floating servers keeps one tiled pane", function()
+  local logs = {
+    window_id = "w2",
+    label = "logs",
+    layers = { { kind = "tiled", blocks = { { block_id = "t1", label = "tail" } } } },
+  }
+  local api = stop_session({ windows = stop_windows({ logs }) })
+  local ws = stop_ws({
+    stop = { servers = "leave", panes = "close" },
+    tabs = {
+      { name = "agents", panes = { { label = "claude" }, { label = "claude" }, { label = "shell" } } },
+      { name = "logs", panes = { { label = "tail", stop = "leave" } } },
+    },
+  })
+  local targets, kept = stop.plan(api, "s1", ws, { panes = true })
+  eq(kept, { "claude" })
+  eq(#targets, 3)
+  eq(targets[1].how, "interrupt")
+end)
+
+test("stop: forced timeouts are reported", function()
+  local api = stop_session({ windows = stop_windows(), busy = { s1 = true, c1 = true }, stubborn = true })
+  local r = lifecycle.stop(api, stop_ws({ stop_timeout = 0.25, stop = { panes = "interrupt" } }))
+  eq(r.forced, { "claude", "web" })
+  eq(
+    r.message,
+    "Stopped app: closed 1 server, interrupted 1 pane. Closed after 0.25s without stopping: web."
+      .. " Still running after 0.25s: claude."
+  )
+end)
+
+test("restart touches servers only", function()
+  local api, calls = stop_session({ windows = stop_windows(), busy = { c1 = true, s1 = true } })
+  lifecycle.restart(api, L, stop_ws({ stop = { panes = "close" } }), { select = false })
+  eq(calls, { "write s1 ^C", "sleep", "close_layer L1", "write s1 pnpm dev\n" }, "c1 is never touched")
+end)
+
+local function leaf(id, x, y, w, h)
+  return { block_id = id, rect = { x, y, w, h } }
+end
+
+local function split(dir, before, after)
+  return { split = { direction = dir, before = before, after = after, ratio = 0.5 } }
+end
+
+local function labels(node)
+  if node.panes == nil then
+    return node.label
+  end
+  local out = {}
+  for i, n in ipairs(node.panes) do
+    out[i] = labels(n)
+  end
+  return { split = node.split, panes = out }
+end
+
+local function by_label(id)
+  return { label = id }
+end
+
+test("capture reads splits back as panes, grids and groups", function()
+  local grid = split("vertical", split("horizontal", leaf("a"), leaf("b")), split("horizontal", leaf("c"), leaf("d")))
+  eq(labels(capture.grids(capture.tree(grid, by_label))), { split = "grid", panes = { "a", "b", "c", "d" } })
+  local flat = split("horizontal", leaf("x"), split("horizontal", leaf("y"), leaf("z")))
+  eq(labels(capture.grids(capture.tree(flat, by_label))), { split = "right", panes = { "x", "y", "z" } })
+  local main = split("horizontal", leaf("m"), split("vertical", leaf("s1"), leaf("s2")))
+  eq(
+    labels(capture.grids(capture.tree(main, by_label))),
+    { split = "right", panes = { "m", { split = "down", panes = { "s1", "s2" } } } }
+  )
+  local nine = split(
+    "vertical",
+    split("horizontal", leaf("1"), split("horizontal", leaf("2"), leaf("3"))),
+    split(
+      "vertical",
+      split("horizontal", leaf("4"), split("horizontal", leaf("5"), leaf("6"))),
+      split("horizontal", leaf("7"), split("horizontal", leaf("8"), leaf("9")))
+    )
+  )
+  eq(#capture.grids(capture.tree(nine, by_label)).panes, 9)
+  eq(capture.grids(capture.tree(nine, by_label)).split, "grid")
+  local uneven = split("vertical", split("horizontal", leaf("a"), leaf("b")), leaf("c"))
+  eq(capture.grids(capture.tree(uneven, by_label)).split, "grid", "2 over 1 is the 3-pane grid")
+  local stacked = split("vertical", leaf("a"), leaf("b"))
+  eq(capture.grids(capture.tree(stacked, by_label)).split, "down")
+  local skipped = capture.tree(split("horizontal", leaf("a"), leaf("gone")), function(id)
+    return id ~= "gone" and { label = id } or nil
+  end)
+  eq(skipped, { label = "a" })
+end)
+
+test("capture a session: tabs, folders, servers from its workspace, notes", function()
+  local windows = {
+    {
+      window_id = "w1",
+      label = "code",
+      layers = {
+        {
+          kind = "tiled",
+          blocks = { { block_id = "b1", label = "api" }, { block_id = "b2", label = "logs" } },
+          layout = split("horizontal", leaf("b1"), leaf("b2")),
+        },
+        { kind = "floating", layer_id = "L1", blocks = { { block_id = "s1", label = "web" } } },
+        {
+          kind = "floating",
+          layer_id = "L2",
+          state = "minimized",
+          bounds = { 0.5, 0.1, 0.4, 0.3 },
+          blocks = { { block_id = "s2", label = "web" } },
+        },
+        { kind = "floating", layer_id = "L3", blocks = { { block_id = "u", label = "Workspaces" } } },
+        { kind = "floating", layer_id = "L4", blocks = { { block_id = "s3", label = "idle" } } },
+        { kind = "floating", layer_id = "L5", blocks = { { block_id = "s4", label = "top" } } },
+      },
+    },
+    {
+      window_id = "w2",
+      label = "grid",
+      layers = {
+        {
+          kind = "tiled",
+          blocks = {
+            { block_id = "g1", label = "a" },
+            { block_id = "g2", label = "b" },
+            { block_id = "g3", label = "c" },
+            { block_id = "g4" },
+          },
+          layout = split(
+            "vertical",
+            split("horizontal", leaf("g1"), leaf("g2")),
+            split("horizontal", leaf("g3"), leaf("g4"))
+          ),
+        },
+      },
+    },
+  }
+  local api = fake({ windows = windows, busy = { b2 = true } })
+  api.view = function()
+    return { label = "proj", active_window_id = "w2", windows = windows }
+  end
+  local cwds = { b1 = "/private/r/api", b2 = "/r", g1 = "/elsewhere", g2 = "/home/u/x" }
+  api.pwd = function(_, b)
+    return cwds[b]
+  end
+  local pids = { b2 = 9, g3 = 8, s2 = 7, s4 = 6 }
+  local args = { [9] = "node server.js --port 3000", [7] = "tail -f log", [6] = "htop" }
+  api.args = function(pid)
+    return args[pid]
+  end
+  api.process = function(_, b)
+    if pids[b] then
+      return {
+        foreground = { name = "node", pid = pids[b], cwd = "/r" },
+        ancestors = { { pid = 2, name = "zsh", cwd = "/r" }, { pid = 1, name = "login" } },
+        child = { pid = 1, name = "login" },
+      }
+    end
+    return {
+      foreground = { name = "zsh", pid = 2, cwd = "/r/sub" },
+      ancestors = { { pid = 1, name = "login" } },
+      child = { pid = 1, name = "login" },
+    }
+  end
+
+  local ws = ws_of({ root = "/r", servers = { { label = "web", cmd = "pnpm dev" } } })
+  local d = capture.session(api, "s1", {
+    home = HOME,
+    root = "/r",
+    ws = ws,
+    raw = { servers = { { label = "web", cmd = "pnpm dev", cwd = "web" } } },
+    skip = { Workspaces = true },
+    taken = { proj = {} },
+  })
+  eq(d.name, "proj")
+  eq(d.spec.root, "/r")
+  eq(d.spec.focus, "grid")
+  eq(d.spec.servers, {
+    { label = "web", cmd = "pnpm dev", cwd = "web" },
+    { label = "web 2", cmd = "tail -f log", bounds = { 0.5, 0.1, 0.4, 0.3 } },
+    { label = "top", cmd = "htop", minimized = false },
+  })
+  eq(d.spec.tabs[1], {
+    name = "code",
+    split = "right",
+    panes = { { label = "api", cwd = "api" }, { label = "logs", cmd = "node server.js --port 3000" } },
+  })
+  eq(d.spec.tabs[2].split, "grid")
+  eq(d.spec.tabs[2].panes[1].cwd, "/elsewhere")
+  eq(d.spec.tabs[2].panes[2].cwd, "~/x")
+  eq(d.spec.tabs[2].panes[2].cwd, "~/x")
+  eq(d.spec.tabs[2].panes[3].cmd, nil, "ps could not read it")
+  eq(d.spec.tabs[2].panes[4].cwd, "sub", "falls back to the shell's own folder")
+  eq(d.spec.tabs[2].panes[4].label, "shell")
+  contains(d.notes, "Running commands were saved. They run again when the workspace starts.")
+  contains(d.notes, "1 pane runs a command that could not be read")
+  contains(d.notes, "no running command: idle.")
+  contains(d.notes, 'A workspace named "proj" exists')
+  local cfg, errs = build({ copy = d.spec })
+  eq(#errs, 0, "captured spec is valid")
+  eq(cfg.by_name.copy.tabs[2].split, "grid")
+end)
+
+test("capture without a workspace roots at the first pane", function()
+  local windows = {
+    {
+      window_id = "w1",
+      label = "main",
+      layers = { { kind = "tiled", blocks = { { block_id = "b1", label = "sh" } }, layout = leaf("b1") } },
+    },
+  }
+  local api = fake({ windows = windows })
+  api.view = function()
+    return { active_window_id = "w1", windows = windows }
+  end
+  api.pwd = function()
+    return "/home/u/proj"
+  end
+  local d = capture.session(api, "s1", { home = HOME, label = "proj" })
+  eq(d.name, "proj")
+  eq(capture.session(api, "s1", { home = HOME, label = "u" }).name, "untitled", "login name")
+  eq(capture.session(api, "s1", { home = HOME, label = "", taken = { untitled = {} } }).name, "untitled 2")
+  eq(d.spec.root, "~/proj")
+  eq(d.spec.tabs, { { name = "main", panes = { { label = "sh" } } } })
+  eq(#d.notes, 0)
+end)
+
+local PORCELAIN = table.concat({
+  "/repo",
+  "web/",
+  "worktree /repo",
+  "HEAD abc",
+  "branch refs/heads/main",
+  "",
+  "worktree /repo.feat",
+  "HEAD abc",
+  "branch refs/heads/feat/x",
+  "",
+  "worktree /repo.det",
+  "HEAD abc",
+  "detached",
+  "",
+  "worktree /gone",
+  "HEAD abc",
+  "branch refs/heads/old",
+  "prunable gitdir file points to non-existent location",
+  "",
+}, "\n")
+
+test("worktree parse keeps the subfolder, labels by branch or folder, skips prunable", function()
+  local list = worktree.parse(PORCELAIN)
+  eq(#list, 3)
+  eq(list[1], { label = "main", branch = "main", path = "/repo", root = "/repo/web", current = true })
+  eq(list[2].label, "feat/x")
+  eq(list[2].root, "/repo.feat/web")
+  eq(list[3].label, "repo.det")
+  eq(list[3].branch, nil)
+  eq(worktree.parse(nil), {})
+  eq(worktree.parse("/repo\n\nworktree /repo\nbranch refs/heads/main\n")[1].root, "/repo")
+end)
+
+local function two_repos(picks)
+  local raw = {
+    root = "/home/u/proj",
+    servers = {
+      { label = "api", cwd = "/repo/web", cmd = "make", worktree = picks.api },
+      { label = "web", cwd = "/other", cmd = "npm", worktree = picks.web },
+      { label = "db", cmd = "docker" },
+    },
+    tabs = { { name = "main", panes = { { label = "sh", cwd = "/repo/web", worktree = picks.sh } } } },
+  }
+  local ws = build({ app = raw }).by_name.app
+  local api = fake()
+  api.worktrees = function(dir)
+    if dir == "/other" then
+      return "/other\n\nworktree /other\nbranch refs/heads/main\n\nworktree /other.fix\nbranch refs/heads/fix-y\n"
+    end
+    return PORCELAIN
+  end
+  return ws, api
+end
+
+test("worktree is set per server and pane", function()
+  local _, errs = build({ app = { tabs = { { panes = { { split = "down", worktree = "x", panes = {} } } } } } })
+  contains(errs, "put label, cwd, cmd, stop and worktree on its panes")
+  local _, bad = build({ app = { servers = { { label = "a", cmd = "x", worktree = true } } } })
+  contains(bad, "app.servers[1].worktree: must be a string")
+  eq(build({ app = { servers = { { label = "a", cmd = "x", worktree = "" } } } }).by_name.app.servers[1].worktree, nil)
+end)
+
+test("each item starts in the worktree it names, in its own repository", function()
+  local ws, api = two_repos({ api = "feat/x", web = "/other.fix", sh = "repo.det" })
+  local placed = worktree.apply(api, ws, HOME)
+  eq(placed.servers[1].cwd, "/repo.feat/web", "keeps the subfolder")
+  eq(placed.servers[2].cwd, "/other.fix", "another repository, named by path")
+  eq(placed.servers[3].cwd, "/home/u/proj", "items without a worktree stay")
+  eq(placed.tabs[1].panes[1].cwd, "/repo.det/web", "named by folder")
+  eq(ws.servers[1].cwd, "/repo/web", "the workspace is not changed")
+
+  local plain, never = two_repos({})
+  never.worktrees = function()
+    error("git should not run")
+  end
+  eq(worktree.apply(never, plain, HOME), plain)
+
+  local function fails(picks, branches)
+    local bad, api2 = two_repos(picks)
+    api2.has_branch = function(_, b)
+      return branches[b] == true
+    end
+    local ok, err = pcall(worktree.apply, api2, bad, HOME)
+    eq(ok, false)
+    return err
+  end
+  eq(fails({ web = "feat/x" }, {}), 'no worktree "feat/x" for web in app')
+  eq(
+    fails({ web = "feat/x" }, { ["feat/x"] = true }),
+    'web in app: branch "feat/x" has no worktree. Create one with: '
+      .. "git -C '/other' worktree add '/other.feat-x' 'feat/x'"
+  )
 end)
 
 print(string.format("%d passed, %d failed", pass, fail))

@@ -835,3 +835,31 @@ fn non_empty(s: String, fallback: &str) -> String {
         s
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn found_message_only_when_something_was_found() {
+        assert_eq!(found_message(0), None);
+        assert_eq!(
+            found_message(1).as_deref(),
+            Some("Found 1 dev server. Check it, then save.")
+        );
+        assert_eq!(
+            found_message(3).as_deref(),
+            Some("Found 3 dev servers. Check them, then save.")
+        );
+    }
+
+    #[test]
+    fn capture_message_joins_notes() {
+        let v = json!({ "notes": ["One.", "Two."] });
+        assert_eq!(capture_message(&v), "One. Two.");
+        assert_eq!(
+            capture_message(&json!({})),
+            "Check the name, tabs and panes, then save."
+        );
+    }
+}

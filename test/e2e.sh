@@ -49,11 +49,16 @@ sid_of() { R ls --json | jq -r --arg l "$1" '[(.sessions // [])[] | select(.labe
 view() { R session inspect "$(sid_of "$1")" --json; }
 windows() { view "$1" | jq -r '[.windows[].label] | join(",")'; }
 floats() { view "$1" | jq -r '[.windows[].layers[] | select(.kind == "floating") | "\(.blocks[0].label):\(.state // "normal")"] | sort | join(",")'; }
+shape() {
+  view "$1" | jq -r --arg w "$2" '
+    def s: if .block_id then "." else (.split.direction[0:1]) + "(" + (.split.before | s) + " " + (.split.after | s) + ")" end;
+    .windows[] | select(.label == $w) | .layers[] | select(.kind == "tiled") | .layout | s'
+}
 hooks() { tr '\n' ',' < "$T/out/hooks.log" 2>/dev/null; }
 
 echo "config"
 check=$(rex config check "$T/cfg/init.lua" 2>&1)
-has "config check passes" "$check" "actions: 24"
+has "config check passes" "$check" "actions: 25"
 actions=$(R actions 2>&1)
 has "per-workspace palette entry" "$actions" "workspace_start_alpha"
 has "restart entry for a workspace with servers" "$actions" "workspace_restart_beta"
@@ -72,6 +77,7 @@ r=$(R do workspace_start name=alpha --json)
 eq "creates the session" "$(jq .created <<<"$r")" true
 eq "tabs" "$(windows alpha)" "agents,logs"
 eq "focus picks the tab" "$(view alpha | jq -r '.active_window_id as $a | .windows[] | select(.window_id == $a) | .label')" "logs"
+eq "grid tab is two rows of two" "$(shape alpha agents)" "v(h(. .) h(. .))"
 eq "servers float, api minimized" "$(floats alpha)" "api:minimized,web:normal"
 wait_for "$T/out/started.log" api 1 && wait_for "$T/out/started.log" web 1 && ok "servers started" || no "servers started"
 eq "start hooks" "$(hooks)" "before_start,after_start,"
@@ -107,10 +113,123 @@ R do workspace_restart name=alpha --json >/dev/null
 wait_for "$T/out/interrupted.log" api 2 && wait_for "$T/out/started.log" api 3 && ok "api restarted" || no "api restarted"
 eq "still two servers" "$(floats alpha)" "api:minimized,web:normal"
 
+echo "save a session as a workspace"
+d=$(R do workspace_capture session=alpha save=false --json)
+eq "named after the session" "$(jq -r .name <<<"$d")" alpha
+eq "grid read back" "$(jq -c '.spec.tabs[0] | [.split, [.panes[].label]]' <<<"$d")" '["grid",["one","two","three","four"]]'
+eq "pane folder relative to root" "$(jq -r '.spec.tabs[0].panes[1].cwd' <<<"$d")" web
+eq "servers kept from the workspace" "$(jq -c '[.spec.servers[].label]' <<<"$d")" '["api","web"]'
+eq "focused tab kept" "$(jq -r .spec.focus <<<"$d")" logs
+has "warns about the taken name" "$(jq -r '.notes | join(" ")' <<<"$d")" 'named "alpha" exists'
+R do workspace_capture session=alpha name=alpha-copy >/dev/null
+eq "saved to the file" "$(jq -c '.workspaces["alpha-copy"] | [.tabs[0].split, (.servers | length)]' "$T/workspaces.json")" '["grid",2]'
+eq "saved spec is valid" "$(R do workspace_list --json | jq '.errors | length')" 0
+R do workspace_remove name=alpha-copy >/dev/null
+scratch=$(R new scratch --cwd "$T/root" --json | jq -r .session_id)
+R split -s "$scratch" --focus=false --cwd "$T/root/web" >/dev/null
+right=$(R session inspect "$scratch" --json | jq -r '.windows[0].layers[0].layout.split.after.block_id')
+R split -s "$scratch" -b "$right" --split=below --focus=false >/dev/null
+below=$(R session inspect "$scratch" --json | jq -r '.windows[0].layers[0].layout.split.after.split.after.block_id')
+R block call -s "$scratch" -b "$below" write '{"data":"sleep 300\n"}' >/dev/null
+for _ in $(seq 40); do
+  [[ $(R block call -s "$scratch" -b "$below" process | jq -r .foreground.name) == sleep ]] && break
+  sleep 0.25
+done
+R do workspace_capture session=scratch name=scratch-ws >/dev/null
+eq "main and side stack saved" "$(jq -c '.workspaces["scratch-ws"].tabs[0] | [.split, (.panes[1].split), .panes[1].panes[0].cwd]' "$T/workspaces.json")" '["right","down","web"]'
+eq "running command saved" "$(jq -r '.workspaces["scratch-ws"].tabs[0].panes[1].panes[1].cmd' "$T/workspaces.json")" "sleep 300"
+eq "idle shell has no command" "$(jq -r '.workspaces["scratch-ws"].tabs[0].panes[0].cmd // "none"' "$T/workspaces.json")" none
+R do workspace_start name=scratch-ws select=false >/dev/null
+eq "reopens with the same layout" "$(shape scratch-ws "$(view scratch-ws | jq -r '.windows[0].label')")" "h(. v(. .))"
+R do workspace_close name=scratch-ws >/dev/null
+R kill scratch >/dev/null 2>&1
+R do workspace_remove name=scratch-ws >/dev/null
+
+echo "worktrees"
+mkrepo() {
+  local dir=$1 branch=$2
+  mkdir -p "$dir/app" && touch "$dir/app/f"
+  git init -q "$dir"
+  git -C "$dir" -c user.email=t@t -c user.name=t -c commit.gpgsign=false add .
+  git -C "$dir" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm init
+  git -C "$dir" worktree add -q "$dir.$branch" -b "$branch"
+}
+mkrepo "$T/one" feat
+mkrepo "$T/two" fix
+one_feat=$(cd "$T/one.feat" && pwd -P) two_fix=$(cd "$T/two.fix" && pwd -P) two_main=$(cd "$T/two" && pwd -P)
+pane() { printf '{"label":"%s","cwd":"%s","cmd":"pwd -P > %s"%s}' "$1" "$2" "$T/out/$1-pwd" "${3:+,\"worktree\":\"$3\"}"; }
+spec="{\"root\":\"$T\",\"tabs\":[{\"name\":\"t\",\"panes\":[$(pane one "$T/one/app" feat),$(pane two "$T/two/app" "$T/two.fix"),$(pane three "$T/two/app")]}]}"
+R do workspace_save --args "{\"name\":\"wt\",\"spec\":$spec}" >/dev/null
+R config reload >/dev/null
+R do workspace_start name=wt select=false >/dev/null
+wait_for "$T/out/one-pwd" app 1; wait_for "$T/out/two-pwd" app 1; wait_for "$T/out/three-pwd" app 1
+eq "pane runs in the worktree named by branch" "$(cat "$T/out/one-pwd")" "$one_feat/app"
+eq "pane in another repository runs in the worktree named by path" "$(cat "$T/out/two-pwd")" "$two_fix/app"
+eq "pane without a worktree stays" "$(cat "$T/out/three-pwd")" "$two_main/app"
+R do workspace_close name=wt >/dev/null
+R do workspace_save --args "{\"name\":\"wt\",\"previous\":\"wt\",\"spec\":{\"root\":\"$T\",\"servers\":[{\"label\":\"s\",\"cwd\":\"$T/one\",\"cmd\":\"true\",\"worktree\":\"nope\"}]}}" >/dev/null
+R config reload >/dev/null
+r=$(R do workspace_start name=wt 2>&1)
+has "unknown worktree is an error" "$r" 'no worktree "nope" for s in wt'
+eq "nothing opened" "$(sid_of wt)" ""
+git -C "$T/one" branch lonely
+R do workspace_save --args "{\"name\":\"wt\",\"previous\":\"wt\",\"spec\":{\"root\":\"$T\",\"servers\":[{\"label\":\"s\",\"cwd\":\"$T/one\",\"cmd\":\"true\",\"worktree\":\"lonely\"}]}}" >/dev/null
+R config reload >/dev/null
+r=$(R do workspace_start name=wt 2>&1)
+has "a branch without a worktree says how to make one" "$r" 'branch "lonely" has no worktree. Create one with: git -C'
+R do workspace_remove name=wt >/dev/null
+
 echo "stop all"
 R do workspace_close name=alpha --json >/dev/null
 eq "session closed" "$(sid_of alpha)" ""
 wait_for "$T/out/interrupted.log" api 3 && ok "servers interrupted first" || no "servers interrupted first"
+
+echo "configurable stop"
+stop_spec() {
+  jq -nc --arg root "$T/root" --arg svc "sh $repo/test/fixtures/server.sh svc $T/out" --arg panes "$1" --arg keep "$2" '{
+    name: "stopper",
+    spec: {
+      root: $root, stop_timeout: 2, stop: { servers: "interrupt", panes: $panes },
+      servers: [{ label: "svc", cmd: $svc }],
+      tabs: [{ name: "work", panes: [{ label: "busy" }, { label: "keep", stop: $keep }, { label: "idle" }] }]
+    }
+  }'
+}
+save_stop() { R do workspace_save --args "$(stop_spec "$1" "$2" | jq -c --arg p "${3:-}" 'if $p != "" then .previous = $p else . end')" >/dev/null; }
+block_of() { view stopper | jq -r --arg l "$1" '[.windows[].layers[].blocks[] | select(.label == $l)][0].block_id // empty'; }
+fg_of() { R block call -s "$(sid_of stopper)" -b "$(block_of "$1")" process | jq -r .foreground.name; }
+run_in() {
+  R block call -s "$(sid_of stopper)" -b "$(block_of "$1")" write '{"data":"sleep 300\n"}' >/dev/null
+  for _ in $(seq 40); do [[ $(fg_of "$1") == sleep ]] && return 0; sleep 0.25; done
+  return 1
+}
+work_panes() { view stopper | jq -r '[.windows[] | select(.label == "work") | .layers[] | select(.kind == "tiled") | .blocks[].label] | join(",")'; }
+save_stop interrupt leave
+R do workspace_start name=stopper select=false >/dev/null
+wait_for "$T/out/started.log" svc 1 && ok "stopper starts" || no "stopper starts"
+run_in busy && run_in keep && ok "panes run sleep 300" || no "panes run sleep 300"
+R do workspace_restart name=stopper select=false >/dev/null
+wait_for "$T/out/started.log" svc 2 && ok "restart restarts the server" || no "restart restarts the server"
+eq "restart leaves busy panes running" "$(fg_of busy),$(fg_of keep)" "sleep,sleep"
+r=$(R do workspace_stop name=stopper --json)
+eq "stop message" "$(jq -r .message <<<"$r")" "Stopped stopper: interrupted 1 server, interrupted 1 pane."
+eq "servers=interrupt keeps the server pane" "$(floats stopper)" "svc:minimized"
+eq "server pane is idle" "$(fg_of svc)" "$(basename "${SHELL:-sh}")"
+eq "panes=interrupt stops the busy pane" "$(fg_of busy)" "$(basename "${SHELL:-sh}")"
+eq "interrupted panes stay" "$(work_panes)" "busy,keep,idle"
+eq "stop=leave on a pane wins" "$(fg_of keep)" sleep
+save_stop close leave stopper
+run_in busy && ok "busy pane runs again" || no "busy pane runs again"
+R do workspace_stop name=stopper >/dev/null
+eq "panes=close closes them, the override stays" "$(work_panes)" "keep"
+eq "the overridden pane still runs" "$(fg_of keep)" sleep
+save_stop close close stopper
+r=$(R do workspace_stop name=stopper --json)
+eq "last pane kept" "$(work_panes)" "keep"
+has "last pane interrupted, not closed" "$(fg_of keep)" "$(basename "${SHELL:-sh}")"
+has "message says why" "$(jq -r .message <<<"$r")" "Kept keep open so the session is not left empty."
+R do workspace_close name=stopper >/dev/null
+R do workspace_remove name=stopper >/dev/null
 
 echo "servers in a tab"
 R do workspace_start name=beta --json >/dev/null
@@ -160,7 +279,7 @@ eq "require line added once" "$(grep -c '"rex-workspaces"' "$x/rex/init.lua")" 1
 has "demo workspaces.json created" "$(cat "$x/rex/workspaces.json")" '"my-project"'
 out2=$(XDG_CONFIG_HOME=$x "$bin" install 2>&1)
 eq "second install only reloads" "$out2" "Done. Press Cmd+O in Rex, or run: rex do workspace_list"
-has "loads in Rex" "$(rex config check "$x/rex/init.lua" 2>&1)" "actions: 19"
+has "loads in Rex" "$(rex config check "$x/rex/init.lua" 2>&1)" "actions: 20"
 
 if [[ ! -x $bin ]]; then
   echo "ui: skipped, run make build"
@@ -176,6 +295,8 @@ else
     return 1
   }
   wait_screen "alpha" && ok "rows render" || no "rows render" "$(screen)"
+  wait_screen "╭ ○ beta " && ok "no number before the name" || no "no number before the name" "$(screen | head -6)"
+  has "status label is lowercase" "$(screen)" " stopped "
   type_in() { R block call -s "$home_sid" -b "$pane" write "$(jq -nc --arg d "$1" '{data:$d}')" >/dev/null; }
   click_at() { type_in $'\e'"[<0;$2;$1M"; sleep 0.1; type_in $'\e'"[<0;$2;$1m"; sleep 0.3; }
   row_of() { grep -n -- "$1" <<<"$(screen)" | head -1 | cut -d: -f1; }
@@ -211,8 +332,30 @@ else
   if grep -q " alpha " <<<"$(screen)"; then no "filter hides non-matches" "$(screen)"; else ok "filter hides non-matches"; fi
   R send-key -s "$home_sid" -b "$pane" escape
   wait_screen " alpha " && ok "esc clears the filter" || no "esc clears the filter" "$(screen)"
+  R send-key -s "$home_sid" -b "$pane" w
+  wait_screen "Check the name, tabs and panes" && ok "w saves this session in the form" || no "w saves this session in the form" "$(screen)"
+  has "name defaults to the session" "$(screen)" "Name .*Home"
+  R send-key -s "$home_sid" -b "$pane" escape
+  wait_screen "Open  enter" && ok "esc leaves without saving" || no "esc leaves without saving" "$(screen | head -3)"
   R do workspace_ui -s "$home_sid" >/dev/null
   eq "shortcut toggles it closed" "$(R session inspect "$home_sid" --json | jq '[.windows[0].layers[] | select(.kind == "floating")] | length')" 0
+
+  echo "form keeps per-item stop"
+  R do workspace_save --args '{"name":"rt","spec":{"root":"/tmp","key":"ctrl+cmd+8","stop":{"panes":"interrupt"},"servers":[{"label":"s","cmd":"x","stop":"leave","worktree":"feat"}],"tabs":[{"name":"t","panes":[{"label":"p","stop":"close"}]}]}}' >/dev/null
+  R do workspace_edit name=rt -s "$home_sid" >/dev/null
+  pane=$(R session inspect "$home_sid" --json | jq -r '.windows[0].layers[] | select(.kind == "floating") | .blocks[0].block_id')
+  wait_screen "Save  ctrl+s" && ok "edit opens the form" || no "edit opens the form" "$(screen | tail -6)"
+  type_in $'\x13'
+  wait_screen "Saved rt" && ok "form saves" || no "form saves" "$(screen | tail -4)"
+  eq "overrides survive the form" "$(jq -c '.workspaces.rt | [.stop.panes, .servers[0].stop, .tabs[0].panes[0].stop, .servers[0].worktree]' "$T/workspaces.json")" '["interrupt","leave","close","feat"]'
+  type_in $'\x04'
+  wait_screen "Copy of rt" && ok "duplicate makes an unsaved copy" || no "duplicate makes an unsaved copy" "$(screen | tail -4)"
+  type_in $'\x13'
+  wait_screen "Saved rt copy" && ok "copy saves" || no "copy saves" "$(screen | tail -4)"
+  eq "copy keeps worktrees, drops the shortcut" "$(jq -c '.workspaces["rt copy"] | [.servers[0].worktree, .key]' "$T/workspaces.json")" '["feat",null]'
+  eq "original kept" "$(jq -r '.workspaces.rt.key' "$T/workspaces.json")" "ctrl+cmd+8"
+  R do workspace_remove name="rt copy" >/dev/null
+  R do workspace_remove name=rt >/dev/null
 fi
 
 echo

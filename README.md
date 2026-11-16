@@ -1,8 +1,6 @@
 # rex-workspaces
 
-
-https://github.com/user-attachments/assets/78a10da3-f01a-4819-8c8f-9db29d1b3382
-
+<a href="https://github.com/agarun/rex-workspaces/blob/main/assets/demo.mp4"><img src="assets/demo.webp" alt="rex-workspaces starting, running and closing the acme workspace" width="800"></a>
 
 rex-workspaces manages your projects in [Rex](https://www.superlogical.com/rex): save and configure workspaces in any project so you can easily start and stop them.
 
@@ -184,7 +182,7 @@ the command palette. Editors that read `$schema` show a description of each fiel
 | `servers_in`   | `"float"`                          | `"float"` puts servers in floating panes. `"tab"` puts them in a `servers` tab.                                                                                 |
 | `stop_timeout` | `5`                                | Seconds to wait after Ctrl-C, for servers and panes.                                                                                                            |
 | `stop`         | Servers `"close"`, panes `"leave"` | What Stop does. `servers` and `panes`, each `"close"`, `"interrupt"` or `"leave"`. See [What Stop does](#what-stop-does).                                       |
-| `servers[]`    |                                    | `label`, `cmd`, `cwd`, `minimized` (default `true`), `bounds` `[x, y, w, h]`, `stop`. See [Server panes](#server-panes).                                                                        |
+| `servers[]`    |                                    | `label`, `cmd`, `cwd`, `minimized` (default `true`), `bounds` `[x, y, w, h]`, `stop`. See [Server panes](#server-panes).                                        |
 | `tabs[]`       | One shell                          | `name`, `split` (`"right"`, `"down"` or `"grid"`), `panes[]` with `label`, `cwd`, `cmd`, `stop`. A pane can also be a group. See [Pane layouts](#pane-layouts). |
 | `hooks`        |                                    | `before_start`, `after_start`, `before_stop`, `after_stop`. Shell commands that run in `root`. Each has a 20 second limit.                                      |
 
@@ -303,7 +301,8 @@ require("rex-workspaces").setup{
 }
 ```
 
-By default, workspaces are kept in `workspaces.json` in the same folder as `init.lua`.
+By default, workspaces are read from `workspaces.json` and then `workspaces.local.json` in the same
+folder as `init.lua`. Either file may be missing.
 
 To share workspaces across machines but keep some on one machine only, list more than one
 file, as in the example above. Rex-workspaces reads `files` in order. If two files have a

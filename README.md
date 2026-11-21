@@ -1,6 +1,6 @@
 # rex-workspaces
 
-<a href="https://github.com/agarun/rex-workspaces/blob/main/assets/demo.mp4"><img src="assets/demo.webp" alt="rex-workspaces starting, running and closing the acme workspace" width="800"></a>
+<a href="https://cdn.jsdelivr.net/gh/agarun/rex-workspaces@main/assets/demo.mp4"><img src="assets/demo.webp" alt="rex-workspaces starting, running and closing the acme workspace" width="800"></a>
 
 rex-workspaces manages your projects in [Rex](https://www.superlogical.com/rex): save and configure workspaces in any project so you can easily start and stop them.
 

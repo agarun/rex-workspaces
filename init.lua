@@ -19,7 +19,8 @@ local function list_dir(dir)
 end
 
 function M.setup(opts)
-  local settings, unknown = options.resolve(opts, MODULE_DIR, os.getenv("HOME") or "", list_dir)
+  local home, state_home = os.getenv("HOME") or "", os.getenv("XDG_STATE_HOME")
+  local settings, unknown = options.resolve(opts, MODULE_DIR, home, list_dir, state_home)
   if #unknown > 0 then
     rex.log("warn", "rex-workspaces: unknown setup options: " .. table.concat(unknown, ", "))
   end

@@ -1,9 +1,11 @@
 local capture = require("rex-workspaces.lib.capture")
 local config = require("rex-workspaces.lib.config")
 local detect = require("rex-workspaces.lib.detect")
+local freeze = require("rex-workspaces.lib.freeze")
 local layout = require("rex-workspaces.lib.layout")
 local lifecycle = require("rex-workspaces.lib.lifecycle")
 local path = require("rex-workspaces.lib.path")
+local snooze = require("rex-workspaces.lib.snooze")
 local spec = require("rex-workspaces.lib.spec")
 local store = require("rex-workspaces.lib.store")
 local ui_labels = require("rex-workspaces.lib.ui")
@@ -13,7 +15,11 @@ local M = {}
 
 local CATEGORY = "Workspaces"
 
-M.VERBS = { "open", "start", "stop", "close", "restart" }
+local UI_PANES = { [ui_labels.LABEL] = true, [ui_labels.EDIT_LABEL] = true }
+
+M.VERBS = { "open", "start", "stop", "close", "restart", "freeze", "thaw", "snooze", "resume" }
+
+local EVERY_WORKSPACE = { open = true, start = true, close = true, freeze = true, snooze = true }
 
 local TITLES = {
   open = "Open %s",
@@ -21,6 +27,10 @@ local TITLES = {
   stop = "Stop %s Servers",
   close = "Close %s",
   restart = "Restart %s Servers",
+  freeze = "Freeze %s",
+  thaw = "Thaw %s",
+  snooze = "Snooze %s",
+  resume = "Resume %s",
 }
 
 local STOP_ALL = "Stop %s"
@@ -31,7 +41,25 @@ local DESCRIPTIONS = {
   stop = "Stop the servers, and the tab panes if the workspace says so. See the stop option.",
   close = "Stop the servers, then close the whole session.",
   restart = "Stop the servers, then start them again.",
+  freeze = "Pause every process in the session. They keep their memory and ports until you thaw or open it.",
+  thaw = "Continue the processes that Freeze paused.",
+  snooze = "Save the session's layout, commands and scrollback, then close it. Open or resume brings it back.",
+  resume = "Open a snoozed workspace as it was, then forget the snooze.",
 }
+
+local function per_workspace(ws, verb)
+  if verb == "stop" then
+    return #ws.servers > 0 or spec.stops_panes(ws)
+  end
+  if verb == "restart" then
+    return #ws.servers > 0
+  end
+  return EVERY_WORKSPACE[verb] == true
+end
+
+local function count(n, one, many)
+  return n .. " " .. (n == 1 and one or many)
+end
 
 function M.new(rex, api, ui, settings)
   local self = {}
@@ -64,24 +92,6 @@ function M.new(rex, api, ui, settings)
     return worktree.apply(api, ws, settings.home)
   end
 
-  local verbs = {
-    open = function(ws, ctx)
-      return lifecycle.open(api, L, placed(ws), { ctx = ctx })
-    end,
-    start = function(ws, ctx, args)
-      return lifecycle.start(api, L, placed(ws), { ctx = ctx, select = args and args.select })
-    end,
-    stop = function(ws)
-      return lifecycle.stop(api, ws)
-    end,
-    close = function(ws)
-      return lifecycle.close(api, ws)
-    end,
-    restart = function(ws, ctx, args)
-      return lifecycle.restart(api, L, placed(ws), { ctx = ctx, select = args and args.select })
-    end,
-  }
-
   local function list_rows()
     local cfg = self.load()
     local most = 0
@@ -104,6 +114,8 @@ function M.new(rex, api, ui, settings)
     local out = {}
     for _, ws in ipairs(cfg.list) do
       local st = lifecycle.status(api, ws, sessions)
+      st.frozen = freeze.is_frozen(api, settings.state, ws, st.session_id)
+      st.snoozed = not st.running and snooze.exists(api, settings.state, ws)
       st.spec = cfg.raw[ws.name]
       st.file = cfg.origin[ws.name]
       out[#out + 1] = st
@@ -144,7 +156,7 @@ function M.new(rex, api, ui, settings)
     error('no session named "' .. wanted .. '"', 0)
   end
 
-  local function draft(sid)
+  local function draft(sid, live)
     local cfg = self.load()
     local label
     for _, s in ipairs(api.sessions()) do
@@ -160,9 +172,116 @@ function M.new(rex, api, ui, settings)
       raw = ws and cfg.raw[label],
       root = ws and ws.root,
       taken = cfg.raw,
-      skip = { [ui_labels.LABEL] = true, [ui_labels.EDIT_LABEL] = true },
+      skip = UI_PANES,
+      live = live,
     })
   end
+
+  local function thaw(ws, sid)
+    sid = sid or lifecycle.find_session(api, ws.name)
+    return sid ~= nil and freeze.thaw(api, settings.state, ws, sid)
+  end
+
+  local function snoozed(ws)
+    return snooze.exists(api, settings.state, ws) and lifecycle.find_session(api, ws.name) == nil
+  end
+
+  local function resume(ws, ctx, select)
+    local snap = snooze.read(api, settings.state, ws)
+    if snap == nil or type(snap.spec) ~= "table" then
+      snooze.discard(api, settings.state, ws)
+      error("the snooze of " .. ws.name .. " could not be read", 0)
+    end
+    local resumed = snooze.workspace(self.load().raw[ws.name], snap, ws.name, settings.home)
+    snooze.place_screens(api, settings.state, resumed, snap)
+    local r = lifecycle.start(api, L, placed(resumed), { ctx = ctx, select = select })
+    snooze.discard(api, settings.state, ws)
+    r.resumed = true
+    return r
+  end
+
+  local verbs = {
+    open = function(ws, ctx)
+      if snoozed(ws) then
+        return resume(ws, ctx, true)
+      end
+      thaw(ws)
+      return lifecycle.open(api, L, placed(ws), { ctx = ctx })
+    end,
+    start = function(ws, ctx, args)
+      if snoozed(ws) then
+        return resume(ws, ctx, args and args.select)
+      end
+      thaw(ws)
+      return lifecycle.start(api, L, placed(ws), { ctx = ctx, select = args and args.select })
+    end,
+    stop = function(ws)
+      thaw(ws)
+      return lifecycle.stop(api, ws)
+    end,
+    close = function(ws)
+      thaw(ws)
+      local was_snoozed = snoozed(ws)
+      snooze.discard(api, settings.state, ws)
+      local r = lifecycle.close(api, ws)
+      if was_snoozed then
+        r.message = "Discarded the snooze of " .. ws.name .. "."
+      end
+      return r
+    end,
+    restart = function(ws, ctx, args)
+      if snoozed(ws) then
+        return resume(ws, ctx, args and args.select)
+      end
+      thaw(ws)
+      return lifecycle.restart(api, L, placed(ws), { ctx = ctx, select = args and args.select })
+    end,
+    freeze = function(ws)
+      local sid = lifecycle.find_session(api, ws.name)
+      if sid == nil then
+        return { frozen = false, message = ws.name .. " is not open." }
+      end
+      if freeze.is_frozen(api, settings.state, ws, sid) then
+        return { frozen = true, session_id = sid, message = ws.name .. " is already frozen." }
+      end
+      local r = freeze.run(api, settings.state, ws, sid, UI_PANES)
+      if #r.pids == 0 then
+        return { frozen = false, session_id = sid, message = ws.name .. " has nothing running to freeze." }
+      end
+      local what = count(#r.pids, "process", "processes") .. " in " .. count(r.panes, "pane", "panes")
+      return {
+        frozen = true,
+        session_id = sid,
+        processes = #r.pids,
+        message = "Froze " .. ws.name .. ": " .. what .. ".",
+      }
+    end,
+    thaw = function(ws)
+      local sid = lifecycle.find_session(api, ws.name)
+      if not thaw(ws, sid) then
+        return { thawed = false, message = ws.name .. " is not frozen." }
+      end
+      return { thawed = true, session_id = sid, message = "Thawed " .. ws.name .. "." }
+    end,
+    snooze = function(ws)
+      local sid = lifecycle.find_session(api, ws.name)
+      if sid == nil then
+        return { snoozed = false, message = ws.name .. " is not open." }
+      end
+      thaw(ws, sid)
+      snooze.write(api, settings.state, ws, snooze.snapshot(api, sid, draft(sid, true)))
+      local r = lifecycle.close(api, ws)
+      r.snoozed = true
+      r.message = "Snoozed " .. ws.name .. ". Open it to resume."
+      return r
+    end,
+    resume = function(ws, ctx, args)
+      if not snoozed(ws) then
+        return { resumed = false, message = ws.name .. " is not snoozed." }
+      end
+      return resume(ws, ctx, args and args.select)
+    end,
+  }
 
   local function save_session(ctx, args)
     local sid = session_id(ctx, args.session)
@@ -306,8 +425,7 @@ function M.new(rex, api, ui, settings)
   function self.register_each(cfg)
     for _, ws in ipairs(cfg.list) do
       for _, verb in ipairs(M.VERBS) do
-        local stops = #ws.servers > 0 or (verb == "stop" and spec.stops_panes(ws))
-        if verb == "open" or verb == "start" or verb == "close" or stops then
+        if per_workspace(ws, verb) then
           local name = ws.name
           local title = (verb == "stop" and spec.stops_panes(ws)) and STOP_ALL or TITLES[verb]
           define({

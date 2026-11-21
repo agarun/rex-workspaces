@@ -29,39 +29,60 @@ local function keys(raw)
   return { open = open }
 end
 
-local function default_files(confdir, list)
-  local files = { confdir .. "/workspaces.json" }
-  local extra = {}
-  for _, name in ipairs(list and list(confdir) or {}) do
-    if name:match("^workspaces%..+%.json$") then
-      extra[#extra + 1] = name
+local function add_folder(files, dir, find)
+  local found = find and find(dir)
+  for _, f in ipairs(found or {}) do
+    if not path.basename(f):match("^%.") then
+      files[#files + 1] = f
     end
   end
-  table.sort(extra)
-  for _, name in ipairs(extra) do
-    files[#files + 1] = confdir .. "/" .. name
+  return found ~= nil
+end
+
+local function default_files(confdir, find)
+  local files = { confdir .. "/workspaces.json" }
+  for _, f in ipairs(find and find(confdir, 1) or {}) do
+    if path.basename(f):match("^workspaces%..+%.json$") then
+      files[#files + 1] = f
+    end
   end
+  add_folder(files, confdir .. "/workspaces", find)
   return files
 end
 
-function M.resolve(opts, module_dir, home, list, state_home)
+local function expand(entries, home, find)
+  local files, folders = {}, {}
+  for _, entry in ipairs(entries) do
+    entry = path.expand(entry, home)
+    if entry:match("%.json$") or not add_folder(files, entry, find) then
+      files[#files + 1] = entry
+    else
+      folders[entry] = true
+    end
+  end
+  return files, folders
+end
+
+function M.resolve(opts, module_dir, home, find, state_home)
   opts = opts or {}
   if state_home == nil or state_home == "" then
     state_home = home .. "/.local/state"
   end
   local confdir = path.dirname(module_dir)
-  local defaults = opts.files or default_files(confdir, list)
-  local files = {}
-  for i, f in ipairs(defaults) do
-    files[i] = path.expand(f, home)
+  local files, folders
+  if opts.files then
+    files, folders = expand(opts.files, home, find)
+  else
+    files, folders = default_files(confdir, find), {}
   end
+  local first = path.expand((opts.files or {})[1] or (confdir .. "/workspaces.json"), home)
   local ui = opts.ui or {}
   local settings = {
     home = home,
     module_dir = module_dir,
     confdir = confdir,
     files = files,
-    primary = files[1],
+    primary = folders[first] and (first .. "/workspaces.json") or first,
     state = state_home .. "/rex-workspaces",
     keys = keys(opts.keys),
     palette = opts.palette ~= false,

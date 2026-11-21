@@ -450,6 +450,21 @@ else
   R do workspace_remove name=rt >/dev/null
 fi
 
+echo "workspace folders"
+mkdir -p "$T/ws/qa"
+printf '{"workspaces":{"prod-api":{"root":"/tmp"}}}\n' > "$T/ws/prod.json"
+printf '{"workspaces":{"qa1":{"root":"/tmp"},"qa2":{"root":"/tmp"}}}\n' > "$T/ws/qa/qa.json"
+mkdir -p "$T/ws/.git"
+printf '{"workspaces":{"hidden":{"root":"/tmp"}}}\n' > "$T/ws/.git/x.json"
+cp "$T/cfg/init.lua" "$T/init.lua.bak"
+printf 'require("rex-workspaces").setup{ files = { "%s", "%s" } }\n' "$T/workspaces.json" "$T/ws" > "$T/cfg/init.lua"
+R config reload >/dev/null
+eq "folder files are read, nested too, hidden folders skipped" "$(R do workspace_list --json | jq -c '[.workspaces[].name | select(. == "prod-api" or . == "hidden" or startswith("qa"))]')" '["prod-api","qa1","qa2"]'
+R do workspace_save --args '{"name":"qa2","previous":"qa2","spec":{"root":"/var"}}' >/dev/null
+eq "save goes back to the nested file" "$(jq -r '.workspaces.qa2.root' "$T/ws/qa/qa.json")" "/var"
+cp "$T/init.lua.bak" "$T/cfg/init.lua"
+R config reload >/dev/null
+
 echo
 echo "$pass passed, $fail failed"
 ((fail == 0))

@@ -272,23 +272,50 @@ test("load skips missing and empty files, reports bad JSON", function()
   eq(errs, { "c: bad json" })
 end)
 
-test("options: default files include workspaces.*.json, sorted", function()
-  local list = function(dir)
-    eq(dir, "/c/rex")
-    return {
-      "workspaces.work.json",
-      "init.lua",
-      "workspaces.json",
-      "workspaces.local.json",
-      "workspaces.json.tmp",
-      "xworkspaces.json",
-    }
+test("options: default files include workspaces.*.json and the workspaces folder", function()
+  local find = function(dir, depth)
+    if dir == "/c/rex" then
+      eq(depth, 1)
+      return {
+        "/c/rex/init.lua.json.bak",
+        "/c/rex/workspaces.json",
+        "/c/rex/workspaces.local.json",
+        "/c/rex/workspaces.work.json",
+        "/c/rex/xworkspaces.json",
+      }
+    end
+    eq(dir, "/c/rex/workspaces")
+    eq(depth, nil)
+    return { "/c/rex/workspaces/.draft.json", "/c/rex/workspaces/local.json", "/c/rex/workspaces/qa/qa1.json" }
   end
-  local s = options.resolve(nil, "/c/rex/rex-workspaces", HOME, list)
-  eq(s.files, { "/c/rex/workspaces.json", "/c/rex/workspaces.local.json", "/c/rex/workspaces.work.json" })
+  local s = options.resolve(nil, "/c/rex/rex-workspaces", HOME, find)
+  eq(s.files, {
+    "/c/rex/workspaces.json",
+    "/c/rex/workspaces.local.json",
+    "/c/rex/workspaces.work.json",
+    "/c/rex/workspaces/local.json",
+    "/c/rex/workspaces/qa/qa1.json",
+  })
   eq(s.primary, "/c/rex/workspaces.json")
-  local custom = options.resolve({ files = { "~/a.json" } }, "/c/rex/rex-workspaces", HOME, list)
-  eq(#custom.files, 1)
+  local custom = options.resolve({ files = { "~/a.json" } }, "/c/rex/rex-workspaces", HOME, find)
+  eq(custom.files, { HOME .. "/a.json" })
+end)
+
+test("options: a files entry that is a folder is read as a folder", function()
+  local find = function(dir)
+    if dir ~= HOME .. "/ws" then
+      return nil
+    end
+    return { HOME .. "/ws/prod/api.json", HOME .. "/ws/qa.json" }
+  end
+  local s = options.resolve({ files = { "~/ws", "~/extra.json" } }, "/m", HOME, find)
+  eq(s.files, { HOME .. "/ws/prod/api.json", HOME .. "/ws/qa.json", HOME .. "/extra.json" })
+  eq(s.primary, HOME .. "/ws/workspaces.json")
+  s = options.resolve({ files = { "~/main.json", "~/ws" } }, "/m", HOME, find)
+  eq(s.primary, HOME .. "/main.json")
+  s = options.resolve({ files = { "~/w.jsonc", "~/missing" } }, "/m", HOME, find)
+  eq(s.files, { HOME .. "/w.jsonc", HOME .. "/missing" })
+  eq(s.primary, HOME .. "/w.jsonc")
 end)
 
 test("options: defaults, keys, unknown names", function()

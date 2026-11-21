@@ -29,12 +29,27 @@ local function keys(raw)
   return { open = open }
 end
 
-function M.resolve(opts, module_dir, home)
+local function default_files(confdir, list)
+  local files = { confdir .. "/workspaces.json" }
+  local extra = {}
+  for _, name in ipairs(list and list(confdir) or {}) do
+    if name:match("^workspaces%..+%.json$") then
+      extra[#extra + 1] = name
+    end
+  end
+  table.sort(extra)
+  for _, name in ipairs(extra) do
+    files[#files + 1] = confdir .. "/" .. name
+  end
+  return files
+end
+
+function M.resolve(opts, module_dir, home, list)
   opts = opts or {}
   local confdir = path.dirname(module_dir)
-  local defaults = { confdir .. "/workspaces.json" }
+  local defaults = opts.files or default_files(confdir, list)
   local files = {}
-  for i, f in ipairs(opts.files or defaults) do
+  for i, f in ipairs(defaults) do
     files[i] = path.expand(f, home)
   end
   local ui = opts.ui or {}

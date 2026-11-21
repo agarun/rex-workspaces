@@ -270,6 +270,25 @@ test("load skips missing and empty files, reports bad JSON", function()
   eq(errs, { "c: bad json" })
 end)
 
+test("options: default files include workspaces.*.json, sorted", function()
+  local list = function(dir)
+    eq(dir, "/c/rex")
+    return {
+      "workspaces.work.json",
+      "init.lua",
+      "workspaces.json",
+      "workspaces.local.json",
+      "workspaces.json.tmp",
+      "xworkspaces.json",
+    }
+  end
+  local s = options.resolve(nil, "/c/rex/rex-workspaces", HOME, list)
+  eq(s.files, { "/c/rex/workspaces.json", "/c/rex/workspaces.local.json", "/c/rex/workspaces.work.json" })
+  eq(s.primary, "/c/rex/workspaces.json")
+  local custom = options.resolve({ files = { "~/a.json" } }, "/c/rex/rex-workspaces", HOME, list)
+  eq(#custom.files, 1)
+end)
+
 test("options: defaults, keys, unknown names", function()
   local s, unknown = options.resolve(nil, "/c/rex/rex-workspaces", HOME)
   eq(s.files, { "/c/rex/workspaces.json" })

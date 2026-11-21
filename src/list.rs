@@ -33,12 +33,29 @@ fn running(ws: &Value) -> bool {
     ws["running"].as_bool().unwrap_or(false)
 }
 
+fn frozen(ws: &Value) -> bool {
+    ws["frozen"].as_bool().unwrap_or(false)
+}
+
+fn snoozed(ws: &Value) -> bool {
+    ws["snoozed"].as_bool().unwrap_or(false)
+}
+
 fn state(ws: &Value) -> (Span<'static>, String) {
     let p = palette();
     let total = servers(ws).len();
     let up = ws["servers_up"].as_u64().unwrap_or(0) as usize;
+    if snoozed(ws) {
+        return (Span::styled("◌", muted()), "snoozed".into());
+    }
     if !running(ws) {
         return (Span::styled("○", faint()), "stopped".into());
+    }
+    if frozen(ws) {
+        return (
+            Span::styled("●", Style::new().fg(p.accent)),
+            "frozen".into(),
+        );
     }
     if total == 0 {
         return (Span::styled("●", Style::new().fg(p.success)), "open".into());
@@ -69,6 +86,18 @@ pub fn buttons(selected: Option<&Value>, any: bool) -> Vec<(&'static str, Button
     } else {
         ("start", "Start")
     };
+    let is_frozen = selected.is_some_and(frozen);
+    let is_snoozed = selected.is_some_and(snoozed);
+    let (freeze, freeze_label) = if is_frozen {
+        ("thaw", "Thaw")
+    } else {
+        ("freeze", "Freeze")
+    };
+    let (snooze, snooze_label) = if is_snoozed {
+        ("resume", "Resume")
+    } else {
+        ("snooze", "Snooze")
+    };
     vec![
         (
             "open",
@@ -84,8 +113,16 @@ pub fn buttons(selected: Option<&Value>, any: bool) -> Vec<(&'static str, Button
             Button::new("Restart", "r", Tone::Normal).enabled(open && has_servers),
         ),
         (
+            freeze,
+            Button::new(freeze_label, "x", Tone::Normal).enabled(open),
+        ),
+        (
+            snooze,
+            Button::new(snooze_label, "z", Tone::Normal).enabled(open || is_snoozed),
+        ),
+        (
             "close",
-            Button::new("Close", "c", Tone::Danger).enabled(open),
+            Button::new("Close", "c", Tone::Danger).enabled(open || is_snoozed),
         ),
         (
             "edit",
@@ -311,6 +348,8 @@ mod tests {
                 "Open",
                 "Start",
                 "Restart",
+                "Freeze",
+                "Snooze",
                 "Close",
                 "Edit",
                 "New",
@@ -338,6 +377,25 @@ mod tests {
         assert_eq!(serve(json!({ "running": true })), ("start", false));
     }
 
+    fn toggle(ws: Value, i: usize) -> (&'static str, bool) {
+        let b = buttons(Some(&ws), true);
+        (b[i].0, b[i].1.enabled)
+    }
+
+    #[test]
+    fn freeze_and_snooze_toggle_with_their_state() {
+        let open = json!({ "running": true });
+        assert_eq!(toggle(open.clone(), 3), ("freeze", true));
+        assert_eq!(toggle(open, 4), ("snooze", true));
+        let frozen = json!({ "running": true, "frozen": true });
+        assert_eq!(toggle(frozen, 3), ("thaw", true));
+        let snoozed = json!({ "snoozed": true });
+        assert_eq!(toggle(snoozed.clone(), 3), ("freeze", false));
+        assert_eq!(toggle(snoozed.clone(), 4), ("resume", true));
+        assert_eq!(toggle(snoozed, 5), ("close", true));
+        assert_eq!(toggle(json!({}), 4), ("snooze", false));
+    }
+
     #[test]
     fn worktree_shows_unless_main() {
         assert_eq!(
@@ -355,5 +413,7 @@ mod tests {
         assert_eq!(status(json!({ "running": true })), "open");
         let ws = json!({ "running": true, "servers_up": 1, "servers": [{}, {}] });
         assert_eq!(status(ws), "1 of 2 running");
+        assert_eq!(status(json!({ "running": true, "frozen": true })), "frozen");
+        assert_eq!(status(json!({ "snoozed": true })), "snoozed");
     }
 }

@@ -17,7 +17,7 @@ cat > "$T/cfg/init.lua" <<EOF
 require("rex-workspaces").setup{ files = { "$T/workspaces.json" } }
 EOF
 
-REX_SERVER=$sock XDG_CACHE_HOME=$T/cache REX_SESSION= REX_BLOCK= REX_CLIENT= rex server run --listen "$sock" --state-dir "$T/state" --restore=false --config "$T/cfg/init.lua" \
+REX_SERVER=$sock XDG_CACHE_HOME=$T/cache XDG_STATE_HOME=$T/xstate REX_SESSION= REX_BLOCK= REX_CLIENT= rex server run --listen "$sock" --state-dir "$T/state" --restore=false --config "$T/cfg/init.lua" \
   > "$T/server.log" 2>&1 &
 server_pid=$!
 cleanup() {
@@ -58,7 +58,7 @@ hooks() { tr '\n' ',' < "$T/out/hooks.log" 2>/dev/null; }
 
 echo "config"
 check=$(rex config check "$T/cfg/init.lua" 2>&1)
-has "config check passes" "$check" "actions: 25"
+has "config check passes" "$check" "actions: 33"
 actions=$(R actions 2>&1)
 has "per-workspace palette entry" "$actions" "workspace_start_alpha"
 has "restart entry for a workspace with servers" "$actions" "workspace_restart_beta"
@@ -231,6 +231,83 @@ has "message says why" "$(jq -r .message <<<"$r")" "Kept keep open so the sessio
 R do workspace_close name=stopper >/dev/null
 R do workspace_remove name=stopper >/dev/null
 
+echo "freeze and thaw"
+mkdir -p "$T/bin"
+cc -x c -o "$T/bin/opencode" -DLOG="\"$T/out/agent-args.log\"" - <<'C'
+#include <stdio.h>
+#include <unistd.h>
+int main(int argc, char **argv) {
+  FILE *f = fopen(LOG, "a");
+  for (int i = 1; i < argc; i++) fprintf(f, "%s ", argv[i]);
+  fprintf(f, "\n");
+  fclose(f);
+  pause();
+}
+C
+R do workspace_save --args "$(jq -nc --arg root "$T/root" --arg svc "sh $repo/test/fixtures/server.sh nap $T/out" '{
+  name: "napper",
+  spec: {
+    root: $root, stop_timeout: 2,
+    servers: [{ label: "svc", cmd: $svc }],
+    tabs: [{ name: "work", panes: [{ label: "agent" }, { label: "sh" }] }]
+  }
+}')" >/dev/null
+R config reload >/dev/null
+nap_block() { view napper | jq -r --arg l "$1" '[.windows[].layers[].blocks[] | select(.label == $l)][0].block_id // empty'; }
+nap_proc() { R block call -s "$(sid_of napper)" -b "$(nap_block "$1")" process; }
+nap_fg() { nap_proc "$1" | jq -r .foreground.name; }
+nap_state() { ps -o stat= -p "$(nap_proc "$1" | jq -r .foreground.pid)" | cut -c1; }
+nap_write() { R block call -s "$(sid_of napper)" -b "$(nap_block "$1")" write "$(jq -nc --arg d "$2" '{data:$d}')" >/dev/null; }
+nap_listed() { R do workspace_list --json | jq -r --arg k "$1" '.workspaces[] | select(.name == "napper") | .[$k]'; }
+R do workspace_start name=napper select=false >/dev/null
+wait_for "$T/out/started.log" nap 1 && ok "napper starts" || no "napper starts"
+nap_write agent "$T/bin/opencode"$'\n'
+for _ in $(seq 40); do [[ $(nap_fg agent) == opencode ]] && break; sleep 0.25; done
+nap_write sh $'echo marker-$((6*7))\n'
+wait_for "$T/out/agent-args.log" "" 1
+r=$(R do workspace_freeze name=napper --json)
+has "freeze says what it paused" "$(jq -r .message <<<"$r")" "Froze napper: .* processes in 3 panes."
+eq "agent is stopped" "$(nap_state agent)" T
+eq "server is stopped" "$(nap_state svc)" T
+eq "list shows frozen" "$(nap_listed frozen)" true
+has "freezing again is a no-op" "$(R do workspace_freeze name=napper --json | jq -r .message)" "already frozen"
+r=$(R do workspace_thaw name=napper --json)
+eq "thaw message" "$(jq -r .message <<<"$r")" "Thawed napper."
+eq "agent runs again" "$(nap_state agent)" S
+eq "agent kept the foreground" "$(nap_fg agent)" opencode
+eq "list shows thawed" "$(nap_listed frozen)" false
+R do workspace_freeze name=napper >/dev/null
+R do workspace_stop name=napper >/dev/null
+wait_for "$T/out/interrupted.log" nap 1 && ok "stop thaws first, then Ctrl-C reaches the server" || no "stop thaws first, then Ctrl-C reaches the server"
+eq "nothing left frozen" "$(nap_listed frozen)" false
+
+echo "snooze and resume"
+R do workspace_start name=napper select=false >/dev/null
+wait_for "$T/out/started.log" nap 2 && ok "server back" || no "server back"
+r=$(R do workspace_snooze name=napper --json)
+eq "snooze message" "$(jq -r .message <<<"$r")" "Snoozed napper. Open it to resume."
+eq "session closed" "$(sid_of napper)" ""
+eq "list shows snoozed" "$(nap_listed snoozed)" true
+snap="$T/xstate/rex-workspaces/snoozed/napper.json"
+eq "agent resumes its conversation" "$(jq -r '.spec.tabs[0].panes[0].cmd' "$snap")" "$T/bin/opencode --continue"
+has "idle shell keeps its screen" "$(jq -r '.screens["2"]' "$snap")" "marker-42"
+r=$(R do workspace_open name=napper --json)
+eq "open resumes" "$(jq -c '[.created, .resumed]' <<<"$r")" "[true,true]"
+eq "snooze forgotten" "$(test -e "$snap" && echo kept || echo gone)" gone
+eq "list no longer snoozed" "$(nap_listed snoozed)" false
+wait_for "$T/out/agent-args.log" "--continue" 1 && ok "agent started with --continue" || no "agent started with --continue" "$(cat "$T/out/agent-args.log")"
+wait_for "$T/out/started.log" nap 3 && ok "server started again" || no "server started again"
+for _ in $(seq 40); do grep -q marker-42 <<<"$(R capture -s "$(sid_of napper)" -b "$(nap_block sh)")" && break; sleep 0.25; done
+has "old output is back" "$(R capture -s "$(sid_of napper)" -b "$(nap_block sh)")" "marker-42"
+for _ in $(seq 40); do [[ $(nap_fg sh) != sh ]] && break; sleep 0.25; done
+eq "then a normal shell" "$(nap_fg sh)" "$(basename "${SHELL:-sh}")"
+eq "screen file removed" "$(ls "$T/xstate/rex-workspaces/screens" 2>/dev/null | wc -l | tr -d ' ')" 0
+R do workspace_snooze name=napper >/dev/null
+r=$(R do workspace_close name=napper --json)
+eq "close discards a snooze" "$(jq -r .message <<<"$r")" "Discarded the snooze of napper."
+eq "nothing snoozed" "$(nap_listed snoozed)" false
+R do workspace_remove name=napper >/dev/null
+
 echo "servers in a tab"
 R do workspace_start name=beta --json >/dev/null
 eq "default tab plus servers tab" "$(windows beta)" "main,servers"
@@ -279,7 +356,7 @@ eq "require line added once" "$(grep -c '"rex-workspaces"' "$x/rex/init.lua")" 1
 has "demo workspaces.json created" "$(cat "$x/rex/workspaces.json")" '"my-project"'
 out2=$(XDG_CONFIG_HOME=$x "$bin" install 2>&1)
 eq "second install only reloads" "$out2" "Done. Press Cmd+O in Rex, or run: rex do workspace_list"
-has "loads in Rex" "$(rex config check "$x/rex/init.lua" 2>&1)" "actions: 20"
+has "loads in Rex" "$(rex config check "$x/rex/init.lua" 2>&1)" "actions: 26"
 
 if [[ ! -x $bin ]]; then
   echo "ui: skipped, run make build"

@@ -120,6 +120,8 @@ All configuration is saved in a `workspaces.json` file on your machine.
 | **Start**   | Opens the session and starts each server that is not running.                                                       |
 | **Stop**    | Stops the servers: Ctrl-C, then closes their panes. Can also stop tab panes. See [What Stop does](#what-stop-does). |
 | **Restart** | Stops the servers only, then starts them. Tab panes are not touched.                                                |
+| **Freeze**  | Pauses every process in the session. **Thaw** continues them. See [Freeze and snooze](#freeze-and-snooze).          |
+| **Snooze**  | Saves and closes the session. **Open** or **Resume** brings it back. See [Freeze and snooze](#freeze-and-snooze).   |
 | **Close**   | Sends Ctrl-C to the servers, then closes the whole session.                                                         |
 
 These actions are also in the command palette, for example `Workspace: Open my-project`.
@@ -141,6 +143,7 @@ rex do workspace_list
 | <kbd>Enter</kbd>                                                 | Open                                              | Toggle, or go to the next field                     |
 | <kbd>s</kbd>                                                     | Stop. If no server runs, start them.              |                                                     |
 | <kbd>r</kbd> <kbd>c</kbd> <kbd>e</kbd> <kbd>n</kbd> <kbd>w</kbd> | Restart, Close, Edit, New, Save as new            |                                                     |
+| <kbd>x</kbd> <kbd>z</kbd>                                        | Freeze or thaw, snooze or resume                  |                                                     |
 | <kbd>←</kbd> <kbd>→</kbd> <kbd>Home</kbd> <kbd>End</kbd>         |                                                   | Move the cursor, or change a choice                 |
 | <kbd>Ctrl</kbd>+<kbd>W</kbd> / <kbd>Ctrl</kbd>+<kbd>U</kbd>      |                                                   | Delete a word / clear the field                     |
 | <kbd>Ctrl</kbd>+<kbd>O</kbd>                                     |                                                   | Select a folder                                     |
@@ -268,6 +271,44 @@ one pane's place. A main pane with a stack of two on its right:
 Groups can hold groups. The edit form shows groups and lets you change their layout and add
 panes. To make a new group, edit `workspaces.json`, or arrange the panes in Rex and
 [save the session](#save-a-session).
+
+## Freeze and snooze
+
+Both put a workspace aside so it stops using the CPU. Pick by how long you'll be away.
+
+|                  | **Freeze** (<kbd>x</kbd>)                         | **Snooze** (<kbd>z</kbd>)                                  |
+| ---------------- | ------------------------------------------------- | ---------------------------------------------------------- |
+| Processes        | Paused, exactly as they are                       | Ended, then started again on resume                        |
+| Memory and ports | Still held                                        | Freed                                                      |
+| Survives         | Until Rex or the machine restarts                 | Restarts and reboots                                       |
+| Comes back with  | **Thaw**, or **Open**                             | **Resume**, or **Open**                                    |
+| Shows as         | `frozen`                                          | `snoozed`                                                  |
+
+**Freeze** pauses each pane's shell and everything it runs, servers included, with `SIGSTOP`, and
+**Thaw** continues them. Unsaved editor buffers, REPLs and agents carry on where they were. A
+frozen server still holds its port, so requests to it wait until you thaw. **Stop**, **Restart**
+and **Close** thaw the workspace first.
+
+**Snooze** saves the session's tabs, panes, folders, running commands and the scrollback of idle
+shells, then closes it like **Close**. **Resume** opens it from what was saved and runs the
+`before_start` and `after_start` hooks:
+
+- Idle shells show their old output, then a new prompt.
+- Running commands start again. Servers that were stopped stay stopped.
+- Agents continue their last conversation in that folder: `claude` runs as `claude --continue`,
+  `opencode` as `opencode --continue` and `codex` as `codex resume --last`. Two agents of the same
+  kind in one folder both continue the same conversation.
+- Program state that is not on disk, such as unsaved buffers, is lost.
+
+**Close** on a snoozed workspace discards what was saved. Snoozes are kept in
+`~/.local/state/rex-workspaces` (or `$XDG_STATE_HOME/rex-workspaces`).
+
+```sh
+rex do workspace_freeze name=my-project
+rex do workspace_thaw name=my-project
+rex do workspace_snooze name=my-project
+rex do workspace_resume name=my-project
+```
 
 ## Worktrees
 

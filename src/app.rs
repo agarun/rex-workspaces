@@ -180,7 +180,7 @@ impl App {
                     self.status = Some((format!("{name} is open. {hint}."), false));
                     self.refresh();
                 }
-                Ok(v) if verb == "stop" && v["message"].is_string() => {
+                Ok(v) if v["message"].is_string() => {
                     self.busy = None;
                     let message = v["message"].as_str().unwrap_or_default().to_string();
                     let warn = !v["forced"].as_array().is_none_or(Vec::is_empty);
@@ -193,6 +193,7 @@ impl App {
                         "stop" => "Stopped",
                         "close" => "Closed",
                         "restart" => "Restarted",
+                        "resume" => "Resumed",
                         _ => "Started",
                     };
                     self.status = Some((format!("{past} {name}"), false));
@@ -297,6 +298,10 @@ impl App {
             "stop" => "Stopping",
             "close" => "Closing",
             "restart" => "Restarting",
+            "freeze" => "Freezing",
+            "thaw" => "Thawing",
+            "snooze" => "Snoozing",
+            "resume" => "Resuming",
             _ => "Starting",
         };
         self.busy = Some(format!("{running} {name}…"));
@@ -492,7 +497,8 @@ impl App {
 
     fn list_action(&mut self, action: &str) {
         match action {
-            "open" | "start" | "stop" | "restart" | "close" => self.verb(action),
+            "open" | "start" | "stop" | "restart" | "close" | "freeze" | "thaw" | "snooze"
+            | "resume" => self.verb(action),
             "edit" => {
                 if let Some(name) = self.selected_name() {
                     self.open_editor(&name);
@@ -629,6 +635,8 @@ impl App {
             KeyCode::Enter | KeyCode::Char('o') => self.list_action("open"),
             KeyCode::Char('s') => self.list_button(1),
             KeyCode::Char('r') => self.list_action("restart"),
+            KeyCode::Char('x') => self.list_button(3),
+            KeyCode::Char('z') => self.list_button(4),
             KeyCode::Char('c') => self.list_action("close"),
             KeyCode::Char('e') => self.list_action("edit"),
             KeyCode::Char('n') => self.list_action("new"),

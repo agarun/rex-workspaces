@@ -3,12 +3,15 @@ local M = {}
 M.SHELL = "com.superlogical.terminal.shell"
 M.DEFAULT_UI_BOUNDS = { 0.2, 0.15, 0.6, 0.7 }
 
+M.REPLAY = 'cat "$1"; rm -f "$1"; exec "${SHELL:-/bin/sh}" -l'
+
 function M.block(L, p)
-  return L.block({
-    flavor = M.SHELL,
-    label = p.label,
-    options = { cwd = p.cwd, initial_input = p.cmd and (p.cmd .. "\n") or nil },
-  })
+  local options = { cwd = p.cwd, initial_input = p.cmd and (p.cmd .. "\n") or nil }
+  if p.replay then
+    options.shell = "none"
+    options.command = { "/bin/sh", "-c", M.REPLAY, "sh", p.replay }
+  end
+  return L.block({ flavor = M.SHELL, label = p.label, options = options })
 end
 
 function M.grid_rows(n)

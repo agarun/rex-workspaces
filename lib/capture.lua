@@ -123,16 +123,16 @@ local function known_servers(api, sid, ws, raw)
   return by_block, specs
 end
 
-local function known_cmds(ws)
-  local cmds = {}
+local function known_panes(ws)
+  local panes = {}
   if ws then
     for _, t in ipairs(ws.tabs) do
       each_leaf(t.panes, function(p)
-        cmds[p.label] = cmds[p.label] or p.cmd
+        panes[p.label] = panes[p.label] or p
       end)
     end
   end
-  return cmds
+  return panes
 end
 
 local function unique(label, taken)
@@ -150,7 +150,8 @@ function M.session(api, sid, opts)
   local name = spec.default_name(view.label or opts.label, opts.home, opts.taken)
   local ws = opts.ws
   local server_blocks, server_specs = known_servers(api, sid, ws, opts.raw)
-  local cmds = known_cmds(ws)
+  local known = known_panes(ws)
+  local block_of = {}
   local skip = opts.skip or {}
   local blocks, unreadable, ran, skipped = {}, 0, 0, {}
   local server_labels, floats = {}, {}
@@ -186,7 +187,16 @@ function M.session(api, sid, opts)
     end
     local b = blocks[block_id] or {}
     local label = (b.label and b.label ~= "") and b.label or "shell"
-    return { label = label, cmd = cmds[label] or running(block_id), cwd = cwd_of(block_id) }
+    local def = known[label] or {}
+    local cmd
+    if opts.live then
+      cmd = running(block_id) or def.cmd
+    else
+      cmd = def.cmd or running(block_id)
+    end
+    local p = { label = label, cmd = cmd, cwd = cwd_of(block_id), stop = def.stop }
+    block_of[p] = block_id
+    return p
   end
 
   local function float(layer, b)
@@ -240,9 +250,11 @@ function M.session(api, sid, opts)
   end
   root = root or opts.home
   local roots = { root, api.realpath(root) }
+  local pane_blocks = {}
   for _, t in ipairs(tabs) do
     each_leaf(t.panes, function(p)
       p.cwd = relative(p.cwd, roots, opts.home)
+      pane_blocks[#pane_blocks + 1] = block_of[p]
     end)
   end
   for _, s in ipairs(floats) do
@@ -276,6 +288,7 @@ function M.session(api, sid, opts)
     name = name,
     session_id = sid,
     notes = notes,
+    blocks = pane_blocks,
     spec = {
       root = path.contract(root, opts.home),
       servers_in = ws and ws.servers_in ~= "float" and ws.servers_in or nil,

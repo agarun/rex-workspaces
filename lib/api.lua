@@ -79,6 +79,16 @@ function M.new(rex)
     return terminal(sid, block_id, "process")
   end
 
+  function api.screen(sid, block_id)
+    local ok, r = pcall(terminal, sid, block_id, "format", { format = "vt" })
+    return ok and r.content or nil
+  end
+
+  function api.text(sid, block_id)
+    local ok, r = pcall(terminal, sid, block_id, "format", { format = "text" })
+    return ok and r.content or nil
+  end
+
   function api.term_size(sid, block_id)
     local ok, r = pcall(terminal, sid, block_id, "size")
     return ok and r or nil
@@ -227,6 +237,41 @@ function M.new(rex)
     local r = rex.exec({ "ps", "-o", "args=", "-p", tostring(pid) }, { timeout = 5 })
     local line = r and r.ok and (r.stdout or ""):match("^%s*([^\n]-)%s*\n?$")
     return (line and line ~= "") and line or nil
+  end
+
+  function api.ps(pids)
+    local argv = { "ps", "-o", "pid=", "-o", "ppid=", "-o", "uid=", "-o", "stat=" }
+    if pids then
+      argv[#argv + 1] = "-p"
+      argv[#argv + 1] = table.concat(pids, ",")
+    else
+      argv[#argv + 1] = "-A"
+    end
+    local r = rex.exec(argv, { timeout = 5 })
+    return r and r.stdout or ""
+  end
+
+  function api.decode(text)
+    return rex.json.decode(text)
+  end
+
+  function api.signal(sig, pids)
+    if #pids == 0 then
+      return
+    end
+    local argv = { "kill", "-" .. sig }
+    for _, pid in ipairs(pids) do
+      argv[#argv + 1] = tostring(pid)
+    end
+    rex.exec(argv, { timeout = 5 })
+  end
+
+  function api.mkdir(dir)
+    rex.exec({ "mkdir", "-p", dir }, { timeout = 5 })
+  end
+
+  function api.remove(path)
+    os.remove(path)
   end
 
   function api.write_file(path, text)

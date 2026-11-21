@@ -44,8 +44,11 @@ local function default_files(confdir, list)
   return files
 end
 
-function M.resolve(opts, module_dir, home, list)
+function M.resolve(opts, module_dir, home, list, state_home)
   opts = opts or {}
+  if state_home == nil or state_home == "" then
+    state_home = home .. "/.local/state"
+  end
   local confdir = path.dirname(module_dir)
   local defaults = opts.files or default_files(confdir, list)
   local files = {}
@@ -59,6 +62,7 @@ function M.resolve(opts, module_dir, home, list)
     confdir = confdir,
     files = files,
     primary = files[1],
+    state = state_home .. "/rex-workspaces",
     keys = keys(opts.keys),
     palette = opts.palette ~= false,
     ui = {

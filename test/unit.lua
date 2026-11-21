@@ -14,12 +14,14 @@ end)
 local capture = require("rex-workspaces.lib.capture")
 local config = require("rex-workspaces.lib.config")
 local detect = require("rex-workspaces.lib.detect")
+local freeze = require("rex-workspaces.lib.freeze")
 local json = require("rex-workspaces.lib.json")
 local layout = require("rex-workspaces.lib.layout")
 local lifecycle = require("rex-workspaces.lib.lifecycle")
 local options = require("rex-workspaces.lib.options")
 local path = require("rex-workspaces.lib.path")
 local proc = require("rex-workspaces.lib.proc")
+local snooze = require("rex-workspaces.lib.snooze")
 local spec = require("rex-workspaces.lib.spec")
 local stop = require("rex-workspaces.lib.stop")
 local store = require("rex-workspaces.lib.store")
@@ -292,6 +294,8 @@ end)
 test("options: defaults, keys, unknown names", function()
   local s, unknown = options.resolve(nil, "/c/rex/rex-workspaces", HOME)
   eq(s.files, { "/c/rex/workspaces.json" })
+  eq(s.state, "/home/u/.local/state/rex-workspaces")
+  eq(options.resolve(nil, "/m", HOME, nil, "/xdg").state, "/xdg/rex-workspaces")
   eq(s.keys.open, "cmd+o")
   eq(s.palette, true)
   eq(#unknown, 0)
@@ -1046,9 +1050,218 @@ test("capture a session: tabs, folders, servers from its workspace, notes", func
   contains(d.notes, "1 pane runs a command that could not be read")
   contains(d.notes, "no running command: idle.")
   contains(d.notes, 'A workspace named "proj" exists')
+  eq(d.blocks, { "b1", "b2", "g1", "g2", "g3", "g4" }, "one block per pane, in pane order")
   local cfg, errs = build({ copy = d.spec })
   eq(#errs, 0, "captured spec is valid")
   eq(cfg.by_name.copy.tabs[2].split, "grid")
+end)
+
+test("capture live prefers what runs now and keeps pane stop", function()
+  local windows = {
+    {
+      window_id = "w1",
+      label = "main",
+      layers = {
+        {
+          kind = "tiled",
+          blocks = { { block_id = "b1", label = "agent" }, { block_id = "b2", label = "tests" } },
+          layout = split("horizontal", leaf("b1"), leaf("b2")),
+        },
+      },
+    },
+  }
+  local api = fake({ windows = windows })
+  api.view = function()
+    return { label = "app", active_window_id = "w1", windows = windows }
+  end
+  api.pwd = function()
+    return "/r"
+  end
+  api.args = function()
+    return "opencode"
+  end
+  api.process = function(_, b)
+    local fg = b == "b1" and { name = "opencode", pid = 9 } or { name = "zsh", pid = 2 }
+    return { foreground = fg, ancestors = { { pid = 2, name = "zsh" } }, child = { pid = 2, name = "zsh" } }
+  end
+  local ws = ws_of({
+    root = "/r",
+    tabs = {
+      {
+        name = "main",
+        panes = { { label = "agent", cmd = "vim", stop = "leave" }, { label = "tests", cmd = "make test" } },
+      },
+    },
+  })
+  local opts = { home = HOME, root = "/r", ws = ws }
+  local saved = capture.session(api, "s1", opts).spec.tabs[1].panes
+  eq(saved[1], { label = "agent", cmd = "vim", stop = "leave" })
+  opts.live = true
+  local live = capture.session(api, "s1", opts).spec.tabs[1].panes
+  eq(live[1], { label = "agent", cmd = "opencode", stop = "leave" })
+  eq(live[2], { label = "tests", cmd = "make test" }, "falls back to the workspace's command")
+end)
+
+test("freeze walks each pane's tree, parents first, own processes only", function()
+  local procs = freeze.parse_ps(table.concat({
+    "    1     0     0 Ss",
+    "  100     1     0 Ss",
+    "  101   100   501 S",
+    "  102   101   501 S+",
+    "  103   102   501 S+",
+    "  104   101   501 S",
+    "  200     1   501 Ss",
+    "  201   200   501 R+",
+    "  300   101     0 S",
+    "garbage",
+  }, "\n"))
+  eq(#procs, 9)
+  eq(procs[3], { pid = 101, ppid = 100, uid = 501, stat = "S" })
+  eq(freeze.order({ 100, 200 }, procs, 501), { 101, 102, 104, 103, 200, 201 })
+  eq(freeze.order({ 100, 101 }, procs, 501), { 101, 102, 104, 103 }, "each process once")
+  eq(freeze.order({ 999 }, procs, 501), {})
+end)
+
+local function state_api(files)
+  local signals = {}
+  return {
+    read = function(f)
+      return files[f]
+    end,
+    exists = function(f)
+      return files[f] ~= nil
+    end,
+    decode = function(text)
+      return load("return " .. text)()
+    end,
+    write_file = function(f, text)
+      files[f] = text
+    end,
+    remove = function(f)
+      files[f] = nil
+    end,
+    mkdir = function() end,
+    signal = function(sig, pids)
+      signals[#signals + 1] = sig .. " " .. table.concat(pids, ",")
+    end,
+    ps = function(pids)
+      return pids and (pids[1] .. " 1 501 T") or ""
+    end,
+  },
+    signals
+end
+
+test("thaw wakes children before their shell, only for the same session", function()
+  local files = { ["/st/frozen/app.json"] = '{ session_id = "s1", pids = { 101, 102, 103 } }' }
+  local api, signals = state_api(files)
+  local ws = { slug = "app" }
+  eq(freeze.is_frozen(api, "/st", ws, "s1"), true)
+  eq(freeze.is_frozen(api, "/st", ws, "s2"), false, "another session")
+  eq(freeze.is_frozen(api, "/st", ws, nil), false, "not open")
+  eq(freeze.thaw(api, "/st", ws, "s1"), true)
+  eq(signals, { "CONT 103,102,101" })
+  eq(files["/st/frozen/app.json"], nil, "forgets the freeze")
+  files["/st/frozen/app.json"] = '{ session_id = "old", pids = { 5 } }'
+  eq(freeze.thaw(api, "/st", ws, "s1"), false)
+  eq(#signals, 1, "a stale freeze sends nothing")
+  eq(files["/st/frozen/app.json"], nil, "and is dropped")
+end)
+
+test("snooze resumes agents where they left off", function()
+  eq(snooze.resume_cmd("opencode"), "opencode --continue")
+  eq(snooze.resume_cmd("/Users/me/.opencode/bin/opencode"), "/Users/me/.opencode/bin/opencode --continue")
+  eq(snooze.resume_cmd("claude"), "claude --continue")
+  eq(snooze.resume_cmd("claude --model opus"), "claude --continue --model opus")
+  eq(snooze.resume_cmd("codex"), "codex resume --last")
+  eq(snooze.resume_cmd("codex resume --last"), "codex resume --last", "already resuming")
+  eq(snooze.resume_cmd("claude --continue"), "claude --continue")
+  eq(snooze.resume_cmd("claude -r abc"), "claude -r abc")
+  eq(snooze.resume_cmd("opencode run fix it"), "opencode run fix it", "a subcommand is left alone")
+  eq(snooze.resume_cmd("npm run dev"), "npm run dev")
+  eq(snooze.resume_cmd(nil), nil)
+end)
+
+test("snooze resumes each agent's own conversation", function()
+  eq(snooze.resume_cmd("claude --model opus", "abc-1"), "claude --resume abc-1 --model opus")
+  eq(snooze.resume_cmd("codex", "019f-2"), "codex resume 019f-2")
+  eq(snooze.resume_cmd("opencode", "ses_3"), "opencode --session ses_3")
+  eq(snooze.resume_cmd("npm run dev", "x"), "npm run dev")
+
+  local running, writes = { b1 = true, b2 = true, b3 = true }, {}
+  local api = {
+    process = function(_, b)
+      local pids = { b1 = 101, b2 = 102, b3 = 103 }
+      return {
+        foreground = running[b] and { pid = pids[b], name = "agent" } or { pid = 1, name = "zsh" },
+        child = { pid = 1, name = "zsh" },
+        ancestors = { { pid = 1, name = "zsh" } },
+      }
+    end,
+    write = function(_, b, data)
+      writes[#writes + 1] = b .. data
+      if b == "b2" then
+        running[b] = false
+      end
+    end,
+    sleep = function() end,
+    read = function(f)
+      return f == "/c/sessions/101.json" and '{"pid":101,"sessionId":"aaaa-1111","cwd":"/r"}' or nil
+    end,
+    text = function(_, b)
+      return b == "b2" and "To reconnect, run:\n  codex resume 019f-old\n  codex resume 019f-new\n" or ""
+    end,
+  }
+  eq(snooze.conversation(api, "s", "b1", "claude", "/c"), "aaaa-1111")
+  eq(#writes, 0, "claude is read from its session file, not quit")
+  eq(snooze.conversation(api, "s", "b2", "codex", "/c"), "019f-new")
+  eq(writes, { "b2\3" })
+  eq(snooze.conversation(api, "s", "b3", "opencode", "/c"), nil, "nothing printed falls back")
+  eq(#writes, 4, "gives up after three Ctrl-C")
+  eq(snooze.conversation(api, "s", "b3", "claude --resume x", "/c"), nil, "already resuming")
+end)
+
+test("snooze saves idle shells' screens and resumes with the workspace's hooks", function()
+  local api = {
+    screen = function(_, b)
+      return "screen of " .. b
+    end,
+  }
+  local d = {
+    blocks = { "b1", "b2", "b3" },
+    spec = {
+      root = "/r",
+      servers = { { label = "web", cmd = "pnpm dev" } },
+      tabs = {
+        { name = "code", split = "right", panes = { { label = "sh" }, { label = "agent", cmd = "claude" } } },
+        { name = "logs", panes = { { label = "tail", cwd = "" } } },
+      },
+    },
+  }
+  local snap = snooze.snapshot(api, "s1", d)
+  eq(snap.screens, { ["1"] = "screen of b1", ["3"] = "screen of b3" })
+  eq(snap.spec.tabs[1].panes[2].cmd, "claude --continue")
+  eq(snap.spec.tabs[2].panes[1], { label = "tail" }, "empty values pruned")
+  local raw = {
+    root = "/r",
+    focus = "main",
+    hooks = { before_start = "echo hi" },
+    servers = { { label = "web", cmd = "pnpm dev" }, { label = "db", cmd = "pg" } },
+    tabs = { { name = "main" } },
+  }
+  local ws = snooze.workspace(raw, snap, "app", HOME)
+  eq(ws.hooks.before_start, "echo hi")
+  eq(ws.focus, nil)
+  eq(#ws.servers, 1, "servers that were stopped stay stopped")
+  eq(ws.tabs[1].name, "code")
+  local files = {}
+  local fs = state_api(files)
+  snooze.place_screens(fs, "/st", ws, snap)
+  eq(ws.tabs[1].panes[1].replay, "/st/screens/app-1.vt")
+  eq(ws.tabs[1].panes[2].replay, nil)
+  eq(files["/st/screens/app-3.vt"], "screen of b3")
+  local block = layout.block(L, ws.tabs[1].panes[1]).block
+  eq(block.options.shell, "none")
+  eq(block.options.command, { "/bin/sh", "-c", layout.REPLAY, "sh", "/st/screens/app-1.vt" })
 end)
 
 test("capture without a workspace roots at the first pane", function()

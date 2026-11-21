@@ -84,6 +84,11 @@ function M.new(rex)
     return ok and r.content or nil
   end
 
+  function api.text(sid, block_id)
+    local ok, r = pcall(terminal, sid, block_id, "format", { format = "text" })
+    return ok and r.content or nil
+  end
+
   function api.term_size(sid, block_id)
     local ok, r = pcall(terminal, sid, block_id, "size")
     return ok and r or nil

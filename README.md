@@ -295,9 +295,12 @@ shells, then closes it like **Close**. **Resume** opens it from what was saved a
 
 - Idle shells show their old output, then a new prompt.
 - Running commands start again. Servers that were stopped stay stopped.
-- Agents continue their last conversation in that folder: `claude` runs as `claude --continue`,
-  `opencode` as `opencode --continue` and `codex` as `codex resume --last`. Two agents of the same
-  kind in one folder both continue the same conversation.
+- Each agent continues its own conversation, even with several in one folder. `claude` runs as
+  `claude --resume <id>`, read from its session file. `codex` and `opencode` are quit with
+  <kbd>Ctrl</kbd>+<kbd>C</kbd> when you snooze, and run as `codex resume <id>` or
+  `opencode --session <id>` from the resume command they print. If no id is found, they continue
+  the last conversation in that folder: `claude --continue`, `codex resume --last` or
+  `opencode --continue`.
 - Program state that is not on disk, such as unsaved buffers, is lost.
 
 **Close** on a snoozed workspace discards what was saved. Snoozes are kept in

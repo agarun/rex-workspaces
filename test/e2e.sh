@@ -17,7 +17,7 @@ cat > "$T/cfg/init.lua" <<EOF
 require("rex-workspaces").setup{ files = { "$T/workspaces.json" } }
 EOF
 
-REX_SERVER=$sock XDG_CACHE_HOME=$T/cache XDG_STATE_HOME=$T/xstate REX_SESSION= REX_BLOCK= REX_CLIENT= rex server run --listen "$sock" --state-dir "$T/state" --restore=false --config "$T/cfg/init.lua" \
+REX_SERVER=$sock XDG_CACHE_HOME=$T/cache XDG_STATE_HOME=$T/xstate CLAUDE_CONFIG_DIR=$T/claude REX_SESSION= REX_BLOCK= REX_CLIENT= rex server run --listen "$sock" --state-dir "$T/state" --restore=false --config "$T/cfg/init.lua" \
   > "$T/server.log" 2>&1 &
 server_pid=$!
 cleanup() {
@@ -234,22 +234,31 @@ R do workspace_remove name=stopper >/dev/null
 echo "freeze and thaw"
 mkdir -p "$T/bin"
 cc -x c -o "$T/bin/opencode" -DLOG="\"$T/out/agent-args.log\"" - <<'C'
+#include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
+static void quit(int sig) {
+  (void)sig;
+  printf("\nContinue  opencode -s ses_fake42\n");
+  fflush(stdout);
+  _exit(0);
+}
 int main(int argc, char **argv) {
   FILE *f = fopen(LOG, "a");
   for (int i = 1; i < argc; i++) fprintf(f, "%s ", argv[i]);
   fprintf(f, "\n");
   fclose(f);
-  pause();
+  signal(SIGINT, quit);
+  for (;;) pause();
 }
 C
+cp "$T/bin/opencode" "$T/bin/claude"
 R do workspace_save --args "$(jq -nc --arg root "$T/root" --arg svc "sh $repo/test/fixtures/server.sh nap $T/out" '{
   name: "napper",
   spec: {
     root: $root, stop_timeout: 2,
     servers: [{ label: "svc", cmd: $svc }],
-    tabs: [{ name: "work", panes: [{ label: "agent" }, { label: "sh" }] }]
+    tabs: [{ name: "work", panes: [{ label: "agent" }, { label: "sh" }, { label: "agent2" }] }]
   }
 }')" >/dev/null
 R config reload >/dev/null
@@ -264,9 +273,13 @@ wait_for "$T/out/started.log" nap 1 && ok "napper starts" || no "napper starts"
 nap_write agent "$T/bin/opencode"$'\n'
 for _ in $(seq 40); do [[ $(nap_fg agent) == opencode ]] && break; sleep 0.25; done
 nap_write sh $'echo marker-$((6*7))\n'
+nap_write agent2 "$T/bin/claude"$'\n'
+for _ in $(seq 40); do [[ $(nap_fg agent2) == claude ]] && break; sleep 0.25; done
+mkdir -p "$T/claude/sessions"
+printf '{"pid":%s,"sessionId":"cl-77"}' "$(nap_proc agent2 | jq -r .foreground.pid)" > "$T/claude/sessions/$(nap_proc agent2 | jq -r .foreground.pid).json"
 wait_for "$T/out/agent-args.log" "" 1
 r=$(R do workspace_freeze name=napper --json)
-has "freeze says what it paused" "$(jq -r .message <<<"$r")" "Froze napper: .* processes in 3 panes."
+has "freeze says what it paused" "$(jq -r .message <<<"$r")" "Froze napper: .* processes in 4 panes."
 eq "agent is stopped" "$(nap_state agent)" T
 eq "server is stopped" "$(nap_state svc)" T
 eq "list shows frozen" "$(nap_listed frozen)" true
@@ -289,13 +302,15 @@ eq "snooze message" "$(jq -r .message <<<"$r")" "Snoozed napper. Open it to resu
 eq "session closed" "$(sid_of napper)" ""
 eq "list shows snoozed" "$(nap_listed snoozed)" true
 snap="$T/xstate/rex-workspaces/snoozed/napper.json"
-eq "agent resumes its conversation" "$(jq -r '.spec.tabs[0].panes[0].cmd' "$snap")" "$T/bin/opencode --continue"
+eq "opencode resumes the conversation it printed" "$(jq -r '.spec.tabs[0].panes[0].cmd' "$snap")" "$T/bin/opencode --session ses_fake42"
+eq "claude resumes the conversation in its session file" "$(jq -r '.spec.tabs[0].panes[2].cmd' "$snap")" "$T/bin/claude --resume cl-77"
 has "idle shell keeps its screen" "$(jq -r '.screens["2"]' "$snap")" "marker-42"
 r=$(R do workspace_open name=napper --json)
 eq "open resumes" "$(jq -c '[.created, .resumed]' <<<"$r")" "[true,true]"
 eq "snooze forgotten" "$(test -e "$snap" && echo kept || echo gone)" gone
 eq "list no longer snoozed" "$(nap_listed snoozed)" false
-wait_for "$T/out/agent-args.log" "--continue" 1 && ok "agent started with --continue" || no "agent started with --continue" "$(cat "$T/out/agent-args.log")"
+wait_for "$T/out/agent-args.log" "--session ses_fake42" 1 && ok "opencode started with its session" || no "opencode started with its session" "$(cat "$T/out/agent-args.log")"
+wait_for "$T/out/agent-args.log" "--resume cl-77" 1 && ok "claude started with its session" || no "claude started with its session" "$(cat "$T/out/agent-args.log")"
 wait_for "$T/out/started.log" nap 3 && ok "server started again" || no "server started again"
 for _ in $(seq 40); do grep -q marker-42 <<<"$(R capture -s "$(sid_of napper)" -b "$(nap_block sh)")" && break; sleep 0.25; done
 has "old output is back" "$(R capture -s "$(sid_of napper)" -b "$(nap_block sh)")" "marker-42"

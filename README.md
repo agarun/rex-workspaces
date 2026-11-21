@@ -301,14 +301,38 @@ require("rex-workspaces").setup{
 }
 ```
 
-By default, workspaces are read from `workspaces.json` and then every `workspaces.*.json` in the same
-folder as `init.lua`, in alphabetical order, for example `workspaces.local.json` and `workspaces.work.json`.
-Any of them may be missing.
+By default, workspaces are read from these files in the same folder as `init.lua`, in order:
+
+1. `workspaces.json`
+2. every `workspaces.*.json`, in alphabetical order, for example `workspaces.local.json`
+3. every `.json` file in the `workspaces` folder and its subfolders, in path order
+
+Any of them may be missing. To group workspaces, split them across files and folders:
+
+```text
+~/.config/rex/
+├── init.lua
+├── workspaces.json
+└── workspaces/
+    ├── local.json
+    ├── prod/
+    │   └── api.json
+    └── qa/
+        ├── qa1.json
+        └── qa2.json
+```
+
+Each file has the same shape as `workspaces.json`, with a top-level `"workspaces"` object.
+Files whose names start with `.` are skipped. After adding or removing a file, run
+`rex config reload`.
+
+Setting `files` replaces these defaults. An entry that ends in `.json` is a file. Any other
+entry is a folder, read the same way as the `workspaces` folder. Rex-workspaces reads `files`
+in order. If two files have a workspace with the same name, the later file wins.
 
 To share workspaces across machines but keep some on one machine only, list more than one
-file, as in the example above. Rex-workspaces reads `files` in order. If two files have a
-workspace with the same name, the later file wins. When you save a workspace, it goes back to
-the file it came from. New workspaces go to the first file.
+file, as in the example above. When you save a workspace, it goes back to the file it came
+from. New workspaces go to the first file, or to `workspaces.json` in the first folder.
 
 ## Development
 

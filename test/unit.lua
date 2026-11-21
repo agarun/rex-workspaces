@@ -1181,6 +1181,45 @@ test("snooze resumes agents where they left off", function()
   eq(snooze.resume_cmd(nil), nil)
 end)
 
+test("snooze resumes each agent's own conversation", function()
+  eq(snooze.resume_cmd("claude --model opus", "abc-1"), "claude --resume abc-1 --model opus")
+  eq(snooze.resume_cmd("codex", "019f-2"), "codex resume 019f-2")
+  eq(snooze.resume_cmd("opencode", "ses_3"), "opencode --session ses_3")
+  eq(snooze.resume_cmd("npm run dev", "x"), "npm run dev")
+
+  local running, writes = { b1 = true, b2 = true, b3 = true }, {}
+  local api = {
+    process = function(_, b)
+      local pids = { b1 = 101, b2 = 102, b3 = 103 }
+      return {
+        foreground = running[b] and { pid = pids[b], name = "agent" } or { pid = 1, name = "zsh" },
+        child = { pid = 1, name = "zsh" },
+        ancestors = { { pid = 1, name = "zsh" } },
+      }
+    end,
+    write = function(_, b, data)
+      writes[#writes + 1] = b .. data
+      if b == "b2" then
+        running[b] = false
+      end
+    end,
+    sleep = function() end,
+    read = function(f)
+      return f == "/c/sessions/101.json" and '{"pid":101,"sessionId":"aaaa-1111","cwd":"/r"}' or nil
+    end,
+    text = function(_, b)
+      return b == "b2" and "To reconnect, run:\n  codex resume 019f-old\n  codex resume 019f-new\n" or ""
+    end,
+  }
+  eq(snooze.conversation(api, "s", "b1", "claude", "/c"), "aaaa-1111")
+  eq(#writes, 0, "claude is read from its session file, not quit")
+  eq(snooze.conversation(api, "s", "b2", "codex", "/c"), "019f-new")
+  eq(writes, { "b2\3" })
+  eq(snooze.conversation(api, "s", "b3", "opencode", "/c"), nil, "nothing printed falls back")
+  eq(#writes, 4, "gives up after three Ctrl-C")
+  eq(snooze.conversation(api, "s", "b3", "claude --resume x", "/c"), nil, "already resuming")
+end)
+
 test("snooze saves idle shells' screens and resumes with the workspace's hooks", function()
   local api = {
     screen = function(_, b)

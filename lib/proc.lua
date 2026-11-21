@@ -64,6 +64,11 @@ function M.command(api, sid, block_id)
   return p.foreground.pid and api.args(p.foreground.pid), true
 end
 
+function M.pid(api, sid, block_id)
+  local p, _, depth = read(api, sid, block_id)
+  return busy(p, depth) and p.foreground.pid or nil
+end
+
 function M.interrupt(api, sid, items, timeout)
   local waiting, sent = {}, {}
   for _, it in ipairs(items) do

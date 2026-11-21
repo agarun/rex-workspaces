@@ -269,7 +269,8 @@ function M.new(rex, api, ui, settings)
         return { snoozed = false, message = ws.name .. " is not open." }
       end
       thaw(ws, sid)
-      snooze.write(api, settings.state, ws, snooze.snapshot(api, sid, draft(sid, true)))
+      local claude_dir = os.getenv("CLAUDE_CONFIG_DIR") or (settings.home .. "/.claude")
+      snooze.write(api, settings.state, ws, snooze.snapshot(api, sid, draft(sid, true), claude_dir))
       local r = lifecycle.close(api, ws)
       r.snoozed = true
       r.message = "Snoozed " .. ws.name .. ". Open it to resume."

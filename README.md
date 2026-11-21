@@ -301,8 +301,9 @@ require("rex-workspaces").setup{
 }
 ```
 
-By default, workspaces are read from `workspaces.json` and then `workspaces.local.json` in the same
-folder as `init.lua`. Either file may be missing.
+By default, workspaces are read from `workspaces.json` and then every `workspaces.*.json` in the same
+folder as `init.lua`, in alphabetical order, for example `workspaces.local.json` and `workspaces.work.json`.
+Any of them may be missing.
 
 To share workspaces across machines but keep some on one machine only, list more than one
 file, as in the example above. Rex-workspaces reads `files` in order. If two files have a

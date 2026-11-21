@@ -9,8 +9,17 @@ local M = {}
 
 local MODULE_DIR = path.dirname((debug.getinfo(1, "S").source:gsub("^[@=]", "")))
 
+local function list_dir(dir)
+  local r = rex.exec({ "ls", "-1", dir }, { timeout = 5 })
+  local names = {}
+  for line in ((r and r.stdout) or ""):gmatch("[^\n]+") do
+    names[#names + 1] = line
+  end
+  return names
+end
+
 function M.setup(opts)
-  local settings, unknown = options.resolve(opts, MODULE_DIR, os.getenv("HOME") or "")
+  local settings, unknown = options.resolve(opts, MODULE_DIR, os.getenv("HOME") or "", list_dir)
   if #unknown > 0 then
     rex.log("warn", "rex-workspaces: unknown setup options: " .. table.concat(unknown, ", "))
   end

@@ -80,9 +80,12 @@ If you used Homebrew, run `brew uninstall rex-workspaces` after this command.
 ### Remote hosts
 
 Each Rex server reads its own config and runs its panes on its own machine, so install rex-workspaces on
-each host where you want to use it. The workspaces window lists the workspaces of the host it opens on, so
-attach to a host's session and open it there. If that host does not have rex-workspaces, the pane shows the
-install command to run there.
+each host where you want to use it. The workspaces window lists the workspaces of the host it opens on. If
+that host does not have rex-workspaces, the pane shows the install command to run there.
+
+When another host in `rex hosts` also has rex-workspaces, the window shows a host row above the buttons.
+Press <kbd>h</kbd> to switch to the next host and manage its workspaces from the same window. On another
+host, **Open** starts the workspace without switching to it, and **Save as new** is not available.
 
 To use another host's workspaces from this machine, send the action to that host with `-S`:
 
@@ -141,6 +144,7 @@ rex do workspace_list
 | <kbd>Enter</kbd>                                                 | Open                                              | Toggle, or go to the next field                     |
 | <kbd>s</kbd>                                                     | Stop. If no server runs, start them.              |                                                     |
 | <kbd>r</kbd> <kbd>c</kbd> <kbd>e</kbd> <kbd>n</kbd> <kbd>w</kbd> | Restart, Close, Edit, New, Save as new            |                                                     |
+| <kbd>h</kbd>                                                     | Switch host, when more than one has rex-workspaces |                                                     |
 | <kbd>←</kbd> <kbd>→</kbd> <kbd>Home</kbd> <kbd>End</kbd>         |                                                   | Move the cursor, or change a choice                 |
 | <kbd>Ctrl</kbd>+<kbd>W</kbd> / <kbd>Ctrl</kbd>+<kbd>U</kbd>      |                                                   | Delete a word / clear the field                     |
 | <kbd>Ctrl</kbd>+<kbd>O</kbd>                                     |                                                   | Select a folder                                     |

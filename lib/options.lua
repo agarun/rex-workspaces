@@ -29,36 +29,51 @@ local function keys(raw)
   return { open = open }
 end
 
-local function default_files(confdir, list)
+local function is_json(f)
+  return f:match("%.json$") ~= nil
+end
+
+local function default_files(confdir, find)
   local files = { confdir .. "/workspaces.json" }
-  local extra = {}
-  for _, name in ipairs(list and list(confdir) or {}) do
-    if name:match("^workspaces%..+%.json$") then
-      extra[#extra + 1] = name
+  for _, f in ipairs(find and find(confdir, 1) or {}) do
+    if path.basename(f):match("^workspaces%..+%.json$") then
+      files[#files + 1] = f
     end
   end
-  table.sort(extra)
-  for _, name in ipairs(extra) do
-    files[#files + 1] = confdir .. "/" .. name
+  files[#files + 1] = confdir .. "/workspaces"
+  return files
+end
+
+local function expand(entries, home, find)
+  local files = {}
+  for _, entry in ipairs(entries) do
+    entry = path.expand(entry, home)
+    if is_json(entry) then
+      files[#files + 1] = entry
+    else
+      for _, f in ipairs(find and find(entry) or {}) do
+        if not path.basename(f):match("^%.") then
+          files[#files + 1] = f
+        end
+      end
+    end
   end
   return files
 end
 
-function M.resolve(opts, module_dir, home, list)
+function M.resolve(opts, module_dir, home, find)
   opts = opts or {}
   local confdir = path.dirname(module_dir)
-  local defaults = opts.files or default_files(confdir, list)
-  local files = {}
-  for i, f in ipairs(defaults) do
-    files[i] = path.expand(f, home)
-  end
+  local entries = opts.files or default_files(confdir, find)
+  local files = expand(entries, home, find)
+  local first = path.expand(entries[1] or (confdir .. "/workspaces.json"), home)
   local ui = opts.ui or {}
   local settings = {
     home = home,
     module_dir = module_dir,
     confdir = confdir,
     files = files,
-    primary = files[1],
+    primary = is_json(first) and first or (first .. "/workspaces.json"),
     keys = keys(opts.keys),
     palette = opts.palette ~= false,
     ui = {

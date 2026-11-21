@@ -9,17 +9,20 @@ local M = {}
 
 local MODULE_DIR = path.dirname((debug.getinfo(1, "S").source:gsub("^[@=]", "")))
 
-local function list_dir(dir)
-  local r = rex.exec({ "ls", "-1", dir }, { timeout = 5 })
-  local names = {}
+local function find_json(dir, depth)
+  local argv =
+    { "find", "-L", dir, "-mindepth", "1", "-maxdepth", tostring(depth or 32), "-type", "f", "-name", "*.json" }
+  local r = rex.exec(argv, { timeout = 5 })
+  local files = {}
   for line in ((r and r.stdout) or ""):gmatch("[^\n]+") do
-    names[#names + 1] = line
+    files[#files + 1] = line
   end
-  return names
+  table.sort(files)
+  return files
 end
 
 function M.setup(opts)
-  local settings, unknown = options.resolve(opts, MODULE_DIR, os.getenv("HOME") or "", list_dir)
+  local settings, unknown = options.resolve(opts, MODULE_DIR, os.getenv("HOME") or "", find_json)
   if #unknown > 0 then
     rex.log("warn", "rex-workspaces: unknown setup options: " .. table.concat(unknown, ", "))
   end

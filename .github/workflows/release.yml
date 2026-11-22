@@ -43,9 +43,11 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - run: awk -v v="## ${GITHUB_REF_NAME#v}" '$0 == v {on = 1; next} /^## / {on = 0} on' CHANGELOG.md > notes.md && grep -q . notes.md
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/rex-workspaces-*.tar.gz
+          body_path: notes.md
       - if: env.HOMEBREW_TAP_TOKEN == ''
         run: echo "::notice::HOMEBREW_TAP_TOKEN is not set; skipping the tap update"
       - if: env.HOMEBREW_TAP_TOKEN != ''

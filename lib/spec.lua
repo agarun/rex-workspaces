@@ -106,6 +106,17 @@ local function stop_of(raw, where, errs)
   return out
 end
 
+local function size_of(raw, where, errs)
+  if raw.size == nil then
+    return nil
+  end
+  if type(raw.size) ~= "number" or raw.size <= 0 or raw.size >= 1 then
+    report(errs, where .. ".size", "must be a number between 0 and 1")
+    return nil
+  end
+  return raw.size
+end
+
 local function pane(raw, where, base, home, errs)
   if type(raw) ~= "table" then
     report(errs, where, "must be an object")
@@ -123,6 +134,7 @@ local function pane(raw, where, base, home, errs)
     cwd = path.join(base, path.expand(cwd, home)),
     stop = stop_value(errs, where .. ".stop", raw.stop),
     worktree = wt ~= "" and wt or nil,
+    size = size_of(raw, where, errs),
   }
 end
 
@@ -185,9 +197,13 @@ node = function(raw, where, base, home, errs)
     return pane(raw, where, base, home, errs)
   end
   if raw.label ~= nil or raw.cmd ~= nil or raw.cwd ~= nil or raw.stop ~= nil or raw.worktree ~= nil then
-    report(errs, where, "a group has only split and panes; put label, cwd, cmd, stop and worktree on its panes")
+    report(errs, where, "a group has only split, size and panes; put label, cwd, cmd, stop and worktree on its panes")
   end
-  local g = { split = split_of(raw, where, errs), panes = children(raw, where, base, home, errs) }
+  local g = {
+    split = split_of(raw, where, errs),
+    size = size_of(raw, where, errs),
+    panes = children(raw, where, base, home, errs),
+  }
   if #g.panes == 0 then
     report(errs, where .. ".panes", "needs at least one pane")
     return nil

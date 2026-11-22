@@ -86,10 +86,11 @@ end
 function M.open(api, L, ws, opts)
   opts = opts or {}
   local sid = M.find_session(api, ws.name)
+  local select = opts.select ~= false
   if sid == nil then
-    return M.start(api, L, ws, { ctx = opts.ctx, select = true })
+    return M.start(api, L, ws, { ctx = opts.ctx, select = select })
   end
-  return { session_id = sid, created = false, started = false, selected = api.select(sid, opts.ctx) }
+  return { session_id = sid, created = false, started = false, selected = select and api.select(sid, opts.ctx) }
 end
 
 local function labels_of(list)

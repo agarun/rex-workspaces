@@ -53,6 +53,7 @@ pub struct App {
     button_focus: Option<usize>,
     filter: Option<String>,
     here: Option<String>,
+    order: Option<Vec<String>>,
 }
 
 impl App {
@@ -80,6 +81,7 @@ impl App {
             button_focus: None,
             filter: None,
             here: None,
+            order: None,
         };
 
         match start {
@@ -166,6 +168,9 @@ impl App {
                         cache::store(&v);
                         self.apply_list(&v);
                         self.here = None;
+                        if self.order.is_none() {
+                            self.order = Some(self.names());
+                        }
                         if let Some(name) = self.select_after_list.take() {
                             self.select(&name);
                         }
@@ -197,7 +202,6 @@ impl App {
                         "stop" => "Stopped",
                         "close" => "Closed",
                         "restart" => "Restarted",
-                        "resume" => "Resumed",
                         _ => "Started",
                     };
                     self.status = Some((format!("{past} {name}"), false));
@@ -240,6 +244,31 @@ impl App {
                     }
                 }
             },
+            Done::Layout { name, result } => {
+                let Screen::Edit(ed) = &mut self.screen else {
+                    return;
+                };
+                if ed.previous.as_deref() != Some(name.as_str()) {
+                    return;
+                }
+                ed.pending = false;
+                match result {
+                    Ok(v) => {
+                        ed.spec["tabs"] = v["spec"]["tabs"].clone();
+                        match v["spec"]["focus"].as_str() {
+                            Some(f) => ed.spec["focus"] = json!(f),
+                            None => {
+                                if let Some(o) = ed.spec.as_object_mut() {
+                                    o.remove("focus");
+                                }
+                            }
+                        }
+                        let text = "Copied the session's tabs, panes and sizes. Save to keep them.";
+                        ed.message = Some((text.into(), false));
+                    }
+                    Err(e) => ed.message = Some((e, true)),
+                }
+            }
             Done::Captured(result) => match result {
                 Ok(v) => {
                     self.busy = None;
@@ -277,7 +306,10 @@ impl App {
 
     fn apply_list(&mut self, v: &Value) {
         self.loaded = true;
+        let before = self.selected_name();
+        let focused = self.focused_action();
         self.workspaces = v["workspaces"].as_array().cloned().unwrap_or_default();
+        self.sort_workspaces();
         self.errors = v["errors"]
             .as_array()
             .map(|e| {
@@ -289,13 +321,42 @@ impl App {
         if let Some(home) = v["home"].as_str() {
             self.home = home.to_string();
         }
-        if let Some(sid) = &self.here {
-            if let Some(i) = self.workspaces.iter().position(|w| w["session_id"] == *sid) {
-                self.selected = i;
-            }
+        let here = self
+            .here
+            .as_ref()
+            .and_then(|sid| self.workspaces.iter().position(|w| w["session_id"] == *sid));
+        if let Some(i) = here {
+            self.selected = i;
+        } else if let Some(name) = before {
+            self.select(&name);
         }
         self.selected = self.selected.min(self.workspaces.len().saturating_sub(1));
         self.keep_selection_visible();
+        self.button_focus = focused.and_then(|a| {
+            list::buttons(self.current())
+                .iter()
+                .position(|(b, _)| *b == a)
+        });
+    }
+
+    fn focused_action(&self) -> Option<&'static str> {
+        let i = self.button_focus?;
+        list::buttons(self.current()).get(i).map(|(a, _)| *a)
+    }
+
+    fn sort_workspaces(&mut self) {
+        match &self.order {
+            Some(order) => {
+                let rank = |w: &Value| {
+                    order
+                        .iter()
+                        .position(|n| w["name"] == *n)
+                        .unwrap_or(usize::MAX)
+                };
+                self.workspaces.sort_by_key(rank);
+            }
+            None => self.workspaces.sort_by_key(|w| w["running"] != true),
+        }
     }
 
     fn verb(&mut self, verb: &str) {
@@ -307,10 +368,8 @@ impl App {
             "stop" => "Stopping",
             "close" => "Closing",
             "restart" => "Restarting",
-            "freeze" => "Freezing",
-            "thaw" => "Thawing",
-            "snooze" => "Snoozing",
-            "resume" => "Resuming",
+            "pause" => "Pausing",
+            "save_close" => "Saving",
             _ => "Starting",
         };
         self.busy = Some(format!("{running} {name}…"));
@@ -337,8 +396,11 @@ impl App {
         let raw = ws["spec"].clone();
         let spec = if raw.is_object() { raw } else { json!({}) };
         let root = spec::text(&spec, "/root");
+        let session = ws["session_id"].as_str().map(String::from);
         self.fit_window("edit");
-        self.screen = Screen::Edit(Box::new(Editor::new(name.into(), Some(name.into()), spec)));
+        let mut ed = Editor::new(name.into(), Some(name.into()), spec);
+        ed.session = session;
+        self.screen = Screen::Edit(Box::new(ed));
         self.detect(&root, name);
     }
 
@@ -361,6 +423,21 @@ impl App {
         }
         self.screen = Screen::Edit(Box::new(Editor::new(name.clone(), None, spec)));
         self.detect(&dir, &name);
+    }
+
+    fn use_current_layout(&mut self) {
+        let Screen::Edit(ed) = &mut self.screen else {
+            return;
+        };
+        if ed.pending {
+            return;
+        }
+        let (Some(session), Some(name)) = (ed.session.clone(), ed.previous.clone()) else {
+            return;
+        };
+        ed.pending = true;
+        ed.message = Some(("Reading the session…".into(), false));
+        self.spawn(Job::Layout { session, name });
     }
 
     fn capture(&mut self, session: String) {
@@ -506,8 +583,9 @@ impl App {
 
     fn list_action(&mut self, action: &str) {
         match action {
-            "open" | "start" | "stop" | "restart" | "close" | "freeze" | "thaw" | "snooze"
-            | "resume" => self.verb(action),
+            "open" | "start" | "stop" | "restart" | "pause" | "save_close" | "close" => {
+                self.verb(action)
+            }
             "edit" => {
                 if let Some(name) = self.selected_name() {
                     self.open_editor(&name);
@@ -524,17 +602,40 @@ impl App {
                 _ => self.fail("Open this window in Rex to save a session".into()),
             },
             "filter" => self.filter = Some(self.filter.take().unwrap_or_default()),
-            "quit" => self.quit = true,
             _ => {}
         }
     }
 
     fn list_button(&mut self, i: usize) {
-        let buttons = list::buttons(self.current(), !self.workspaces.is_empty());
-        if let Some((action, b)) = buttons.get(i) {
-            if b.enabled {
-                self.list_action(action);
-            }
+        if let Some((action, _)) = list::buttons(self.current()).get(i) {
+            self.list_action(action);
+        }
+    }
+
+    fn list_extra(&mut self, i: usize) {
+        if let Some((action, _, _)) = list::extras(!self.workspaces.is_empty()).get(i) {
+            self.list_action(action);
+        }
+    }
+
+    fn list_key_char(&mut self, c: char, ctrl: bool) {
+        let key = if ctrl {
+            format!("ctrl+{c}")
+        } else {
+            c.to_string()
+        };
+        let action = list::buttons(self.current())
+            .into_iter()
+            .find(|(_, b)| b.key == key)
+            .map(|(a, _)| a)
+            .or_else(|| {
+                list::extras(!self.workspaces.is_empty())
+                    .into_iter()
+                    .find(|(_, _, k)| *k == key)
+                    .map(|(a, _, _)| a)
+            });
+        if let Some(action) = action {
+            self.list_action(action);
         }
     }
 
@@ -545,6 +646,7 @@ impl App {
             "browse" => self.open_picker(),
             "remove" => self.remove(),
             "duplicate" => self.duplicate(),
+            "layout" => self.use_current_layout(),
             _ => {}
         }
     }
@@ -562,6 +664,7 @@ impl App {
     }
 
     fn move_selection(&mut self, delta: i32) {
+        self.button_focus = None;
         let visible = self.visible();
         let at = visible
             .iter()
@@ -574,17 +677,12 @@ impl App {
     }
 
     fn cycle_button(&mut self, delta: i32) {
-        let buttons = list::buttons(self.current(), !self.workspaces.is_empty());
-        let n = buttons.len() as i32;
-        let default = buttons.iter().position(|(_, b)| b.enabled).unwrap_or(0);
-        let mut i = self.button_focus.unwrap_or(default) as i32;
-        for _ in 0..n {
-            i = (i + delta).rem_euclid(n);
-            if buttons[i as usize].1.enabled {
-                self.button_focus = Some(i as usize);
-                return;
-            }
+        let n = list::buttons(self.current()).len() as i32;
+        if n == 0 {
+            return;
         }
+        let i = (self.button_focus.unwrap_or(0) as i32 + delta).rem_euclid(n);
+        self.button_focus = Some(i as usize);
     }
 
     fn picker_key(&mut self, k: KeyEvent) {
@@ -635,26 +733,23 @@ impl App {
                 let i = self.button_focus.unwrap_or(0);
                 self.list_button(i);
             }
-            KeyCode::Esc if self.button_focus.is_some() => self.button_focus = None,
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
             KeyCode::Home | KeyCode::Char('g') => self.move_selection(-(i32::MAX / 2)),
             KeyCode::End | KeyCode::Char('G') => self.move_selection(i32::MAX / 2),
-            KeyCode::Char('/' | 'f') => self.list_action("filter"),
-            KeyCode::Enter | KeyCode::Char('o') => self.list_action("open"),
-            KeyCode::Char('s') => self.list_button(1),
-            KeyCode::Char('r') => self.list_action("restart"),
-            KeyCode::Char('x') => self.list_button(3),
-            KeyCode::Char('z') => self.list_button(4),
-            KeyCode::Char('c') => self.list_action("close"),
-            KeyCode::Char('e') => self.list_action("edit"),
-            KeyCode::Char('n') => self.list_action("new"),
-            KeyCode::Char('w') => self.list_action("capture"),
+            KeyCode::Char('f') if !self.workspaces.is_empty() => self.list_action("filter"),
+            KeyCode::Enter | KeyCode::Char('o') if self.current().is_some() => {
+                self.list_action("open")
+            }
             KeyCode::Char('q') | KeyCode::Esc => self.quit = true,
+            KeyCode::Char(c) => {
+                let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+                self.list_key_char(c, ctrl)
+            }
             _ => {}
         }
-        let enabled = list::buttons(self.current(), !self.workspaces.is_empty());
-        if self.button_focus.is_some_and(|i| !enabled[i].1.enabled) {
+        let n = list::buttons(self.current()).len();
+        if self.button_focus.is_some_and(|i| i >= n) {
             self.button_focus = None;
         }
     }
@@ -676,6 +771,7 @@ impl App {
             KeyCode::Char('s') if ctrl => self.save(),
             KeyCode::Char('o') if ctrl => self.open_picker(),
             KeyCode::Char('d') if ctrl => self.duplicate(),
+            KeyCode::Char('l') if ctrl => self.use_current_layout(),
             KeyCode::Char('x') if ctrl => ed.remove_focused(),
             KeyCode::Char('u') if ctrl => ed.clear(),
             KeyCode::Char('w') if ctrl => ed.delete_word(),
@@ -763,6 +859,7 @@ impl App {
                 self.button_focus = None;
             }
             (Screen::List, Target::Button(i)) => self.list_button(i),
+            (Screen::List, Target::Extra(i)) => self.list_extra(i),
             (Screen::Edit(ed), Target::Row(i)) => {
                 ed.focus_at(i);
                 ed.recording = ed.on_shortcut();
@@ -864,7 +961,7 @@ mod tests {
     fn sample() -> Value {
         let ws = |name: &str, running: bool| {
             json!({
-                "name": name, "root": "/p/x", "running": running, "frozen": false, "snoozed": false,
+                "name": name, "root": "/p/x", "running": running, "paused": false, "saved": false,
                 "servers": [
                     { "cmd": "make dev-api", "label": "api", "open": running, "up": running },
                     { "cmd": "pnpm dev", "label": "core", "open": false, "up": false }
@@ -911,6 +1008,116 @@ mod tests {
         app.here = Some("session:here".into());
         app.apply_list(&v);
         assert_eq!(app.selected, 2);
+    }
+
+    #[test]
+    fn first_arrow_moves_off_open() {
+        let mut app = App::new(Start::Edit("x".into()));
+        app.apply_list(&sample());
+        app.selected = 1;
+        app.cycle_button(1);
+        assert_eq!(app.button_focus, Some(1));
+        app.button_focus = None;
+        app.cycle_button(-1);
+        assert_eq!(
+            app.button_focus,
+            Some(list::buttons(app.current()).len() - 1)
+        );
+    }
+
+    #[test]
+    fn running_workspaces_sort_first_until_the_window_closes() {
+        let mut app = App::new(Start::Edit("x".into()));
+        app.apply_list(&sample());
+        assert_eq!(app.names(), ["two", "one", "three"]);
+        app.order = Some(app.names());
+        let mut v = sample();
+        v["workspaces"][1]["running"] = json!(false);
+        v["workspaces"][2]["running"] = json!(true);
+        app.selected = 2;
+        app.apply_list(&v);
+        assert_eq!(app.names(), ["two", "one", "three"]);
+        assert_eq!(app.selected_name().as_deref(), Some("three"));
+    }
+
+    #[test]
+    fn esc_closes_even_after_arrow_keys() {
+        let mut app = App::new(Start::Edit("x".into()));
+        app.apply_list(&sample());
+        app.cycle_button(1);
+        app.list_key(KeyEvent::from(KeyCode::Esc));
+        assert!(app.quit);
+        let mut app = App::new(Start::Edit("x".into()));
+        app.apply_list(&sample());
+        app.selected = 1;
+        app.list_key(KeyEvent::from(KeyCode::Char('q')));
+        assert!(app.quit, "q closes the window, never a workspace");
+    }
+
+    #[test]
+    fn button_focus_follows_the_action_not_the_position() {
+        let mut app = App::new(Start::Edit("x".into()));
+        let mut v = sample();
+        v["workspaces"][1]["servers_up"] = json!(1);
+        app.apply_list(&v);
+        assert_eq!(app.selected_name().as_deref(), Some("two"));
+        app.button_focus = list::buttons(app.current())
+            .iter()
+            .position(|(a, _)| *a == "stop");
+        v["workspaces"][1]["servers_up"] = json!(0);
+        app.apply_list(&v);
+        assert_eq!(app.focused_action(), None);
+        v["workspaces"][1]["servers_up"] = json!(1);
+        app.apply_list(&v);
+        app.button_focus = Some(4);
+        let kept = app.focused_action();
+        app.apply_list(&v);
+        assert_eq!(app.focused_action(), kept);
+        app.move_selection(1);
+        assert_eq!(app.button_focus, None);
+    }
+
+    #[test]
+    fn layout_result_for_another_workspace_is_ignored() {
+        let mut app = App::new(Start::Edit("x".into()));
+        let mut ed = Editor::new("one".into(), Some("one".into()), json!({ "tabs": [] }));
+        ed.pending = true;
+        app.screen = Screen::Edit(Box::new(ed));
+        let v = json!({ "spec": { "tabs": [{ "name": "t", "panes": [{ "label": "p" }] }] } });
+        app.handle(Done::Layout {
+            name: "two".into(),
+            result: Ok(v.clone()),
+        });
+        let Screen::Edit(ed) = &app.screen else {
+            panic!()
+        };
+        assert_eq!(ed.spec["tabs"], json!([]));
+        app.handle(Done::Layout {
+            name: "one".into(),
+            result: Ok(v),
+        });
+        let Screen::Edit(ed) = &app.screen else {
+            panic!()
+        };
+        assert_eq!(ed.spec["tabs"][0]["name"], "t");
+    }
+
+    #[test]
+    fn keys_never_change_meaning() {
+        let mut app = App::new(Start::Edit("x".into()));
+        let mut v = sample();
+        v["workspaces"][1]["servers_up"] = json!(1);
+        app.apply_list(&v);
+        let key = |a: &str| {
+            list::buttons(app.current())
+                .into_iter()
+                .find(|(b, _)| *b == a)
+                .map(|(_, b)| b.key)
+        };
+        assert_eq!(key("start"), Some("s"));
+        assert_eq!(key("stop"), Some("x"));
+        assert_eq!(key("restart"), Some("r"));
+        assert_eq!(key("save_close"), Some("ctrl+s"));
     }
 
     #[test]

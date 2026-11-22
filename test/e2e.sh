@@ -58,7 +58,7 @@ hooks() { tr '\n' ',' < "$T/out/hooks.log" 2>/dev/null; }
 
 echo "config"
 check=$(rex config check "$T/cfg/init.lua" 2>&1)
-has "config check passes" "$check" "actions: 33"
+has "config check passes" "$check" "actions: 31"
 actions=$(R actions 2>&1)
 has "per-workspace palette entry" "$actions" "workspace_start_alpha"
 has "restart entry for a workspace with servers" "$actions" "workspace_restart_beta"
@@ -231,7 +231,7 @@ has "message says why" "$(jq -r .message <<<"$r")" "Kept keep open so the sessio
 R do workspace_close name=stopper >/dev/null
 R do workspace_remove name=stopper >/dev/null
 
-echo "freeze and thaw"
+echo "pause and unpause"
 mkdir -p "$T/bin"
 cc -x c -o "$T/bin/opencode" -DLOG="\"$T/out/agent-args.log\"" - <<'C'
 #include <signal.h>
@@ -278,37 +278,36 @@ for _ in $(seq 40); do [[ $(nap_fg agent2) == claude ]] && break; sleep 0.25; do
 mkdir -p "$T/claude/sessions"
 printf '{"pid":%s,"sessionId":"cl-77"}' "$(nap_proc agent2 | jq -r .foreground.pid)" > "$T/claude/sessions/$(nap_proc agent2 | jq -r .foreground.pid).json"
 wait_for "$T/out/agent-args.log" "" 1
-r=$(R do workspace_freeze name=napper --json)
-has "freeze says what it paused" "$(jq -r .message <<<"$r")" "Froze napper: .* processes in 4 panes."
+r=$(R do workspace_pause name=napper --json)
+has "pause says what it paused" "$(jq -r .message <<<"$r")" "Paused napper: .* processes in 4 panes."
 eq "agent is stopped" "$(nap_state agent)" T
 eq "server is stopped" "$(nap_state svc)" T
-eq "list shows frozen" "$(nap_listed frozen)" true
-has "freezing again is a no-op" "$(R do workspace_freeze name=napper --json | jq -r .message)" "already frozen"
-r=$(R do workspace_thaw name=napper --json)
-eq "thaw message" "$(jq -r .message <<<"$r")" "Thawed napper."
+eq "list shows paused" "$(nap_listed paused)" true
+has "pausing again is a no-op" "$(R do workspace_pause name=napper --json | jq -r .message)" "already paused"
+R do workspace_open name=napper >/dev/null
 eq "agent runs again" "$(nap_state agent)" S
 eq "agent kept the foreground" "$(nap_fg agent)" opencode
-eq "list shows thawed" "$(nap_listed frozen)" false
-R do workspace_freeze name=napper >/dev/null
+eq "list shows unpaused" "$(nap_listed paused)" false
+R do workspace_pause name=napper >/dev/null
 R do workspace_stop name=napper >/dev/null
-wait_for "$T/out/interrupted.log" nap 1 && ok "stop thaws first, then Ctrl-C reaches the server" || no "stop thaws first, then Ctrl-C reaches the server"
-eq "nothing left frozen" "$(nap_listed frozen)" false
+wait_for "$T/out/interrupted.log" nap 1 && ok "stop unpauses first, then Ctrl-C reaches the server" || no "stop unpauses first, then Ctrl-C reaches the server"
+eq "nothing left paused" "$(nap_listed paused)" false
 
-echo "snooze and resume"
+echo "save, close and open"
 R do workspace_start name=napper select=false >/dev/null
 wait_for "$T/out/started.log" nap 2 && ok "server back" || no "server back"
-r=$(R do workspace_snooze name=napper --json)
-eq "snooze message" "$(jq -r .message <<<"$r")" "Snoozed napper. Open it to resume."
+r=$(R do workspace_save_close name=napper --json)
+eq "save and close message" "$(jq -r .message <<<"$r")" "Saved and closed napper. Open it to bring it back."
 eq "session closed" "$(sid_of napper)" ""
-eq "list shows snoozed" "$(nap_listed snoozed)" true
-snap="$T/xstate/rex-workspaces/snoozed/napper.json"
+eq "list shows saved" "$(nap_listed saved)" true
+snap="$T/xstate/rex-workspaces/stashed/napper.json"
 eq "opencode resumes the conversation it printed" "$(jq -r '.spec.tabs[0].panes[0].cmd' "$snap")" "$T/bin/opencode --session ses_fake42"
 eq "claude resumes the conversation in its session file" "$(jq -r '.spec.tabs[0].panes[2].cmd' "$snap")" "$T/bin/claude --resume cl-77"
 has "idle shell keeps its screen" "$(jq -r '.screens["2"]' "$snap")" "marker-42"
 r=$(R do workspace_open name=napper --json)
 eq "open resumes" "$(jq -c '[.created, .resumed]' <<<"$r")" "[true,true]"
-eq "snooze forgotten" "$(test -e "$snap" && echo kept || echo gone)" gone
-eq "list no longer snoozed" "$(nap_listed snoozed)" false
+eq "saved session forgotten" "$(test -e "$snap" && echo kept || echo gone)" gone
+eq "list no longer saved" "$(nap_listed saved)" false
 wait_for "$T/out/agent-args.log" "--session ses_fake42" 1 && ok "opencode started with its session" || no "opencode started with its session" "$(cat "$T/out/agent-args.log")"
 wait_for "$T/out/agent-args.log" "--resume cl-77" 1 && ok "claude started with its session" || no "claude started with its session" "$(cat "$T/out/agent-args.log")"
 wait_for "$T/out/started.log" nap 3 && ok "server started again" || no "server started again"
@@ -317,10 +316,10 @@ has "old output is back" "$(R capture -s "$(sid_of napper)" -b "$(nap_block sh)"
 for _ in $(seq 40); do [[ $(nap_fg sh) != sh ]] && break; sleep 0.25; done
 eq "then a normal shell" "$(nap_fg sh)" "$(basename "${SHELL:-sh}")"
 eq "screen file removed" "$(ls "$T/xstate/rex-workspaces/screens" 2>/dev/null | wc -l | tr -d ' ')" 0
-R do workspace_snooze name=napper >/dev/null
+R do workspace_save_close name=napper >/dev/null
 r=$(R do workspace_close name=napper --json)
-eq "close discards a snooze" "$(jq -r .message <<<"$r")" "Discarded the snooze of napper."
-eq "nothing snoozed" "$(nap_listed snoozed)" false
+eq "close forgets a saved session" "$(jq -r .message <<<"$r")" "Forgot the saved session of napper."
+eq "nothing saved" "$(nap_listed saved)" false
 R do workspace_remove name=napper >/dev/null
 
 echo "servers in a tab"
@@ -371,7 +370,7 @@ eq "require line added once" "$(grep -c '"rex-workspaces"' "$x/rex/init.lua")" 1
 has "demo workspaces.json created" "$(cat "$x/rex/workspaces.json")" '"my-project"'
 out2=$(XDG_CONFIG_HOME=$x "$bin" install 2>&1)
 eq "second install only reloads" "$out2" "Done. Press Cmd+O in Rex, or run: rex do workspace_list"
-has "loads in Rex" "$(rex config check "$x/rex/init.lua" 2>&1)" "actions: 26"
+has "loads in Rex" "$(rex config check "$x/rex/init.lua" 2>&1)" "actions: 24"
 
 if [[ ! -x $bin ]]; then
   echo "ui: skipped, run make build"
@@ -399,10 +398,15 @@ else
     echo $(($(printf '%s' "$pre" | wc -m) + 2))
   }
   click_at "$(row_of " beta ")" 6
-  click_at "$(row_of " Start ")" "$(col_of " Start ")"
-  wait_screen "Started beta" && ok "click row, click start" || no "click row, click start" "$(screen | tail -4)"
+  wait_screen " Open  enter" && ok "a stopped workspace shows Open" || no "a stopped workspace shows Open" "$(screen | tail -4)"
+  has "a stopped workspace with servers shows Start" "$(screen)" " Start  s"
+  if grep -q " Pause " <<<"$(screen)"; then no "a stopped workspace hides Pause" "$(screen | tail -4)"; else ok "a stopped workspace hides Pause"; fi
+  has "new, save and filter are listed" "$(screen)" "New n .*Save new w .*Filter /"
+  click_at "$(row_of " Open  enter")" "$(col_of " Open  enter")"
+  wait_screen "beta is open" && ok "click row, click open" || no "click row, click open" "$(screen | tail -4)"
   wait_screen "1 of 1 running" && ok "status goes live" || no "status goes live" "$(screen | head -6)"
-  click_at "$(row_of " Close ")" "$(col_of " Close ")"
+  wait_screen " Save & Close  ctrl+s" && ok "a running workspace shows Save & Close" || no "a running workspace shows Save & Close" "$(screen | tail -4)"
+  click_at "$(row_of " Close  c ")" "$(col_of " Close  c ")"
   wait_screen "Closed beta" && ok "click close" || no "click close" "$(screen | tail -4)"
   bounds() { R session inspect "$home_sid" --json | jq -c '.windows[0].layers[] | select(.kind == "floating") | .bounds'; }
   list_bounds=$(bounds)

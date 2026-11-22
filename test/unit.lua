@@ -14,14 +14,14 @@ end)
 local capture = require("rex-workspaces.lib.capture")
 local config = require("rex-workspaces.lib.config")
 local detect = require("rex-workspaces.lib.detect")
-local freeze = require("rex-workspaces.lib.freeze")
+local pause = require("rex-workspaces.lib.pause")
 local json = require("rex-workspaces.lib.json")
 local layout = require("rex-workspaces.lib.layout")
 local lifecycle = require("rex-workspaces.lib.lifecycle")
 local options = require("rex-workspaces.lib.options")
 local path = require("rex-workspaces.lib.path")
 local proc = require("rex-workspaces.lib.proc")
-local snooze = require("rex-workspaces.lib.snooze")
+local stash = require("rex-workspaces.lib.stash")
 local spec = require("rex-workspaces.lib.spec")
 local stop = require("rex-workspaces.lib.stop")
 local store = require("rex-workspaces.lib.store")
@@ -212,7 +212,7 @@ test("grid and nested groups", function()
     },
   })
   contains(bad, "app.tabs[1].panes[1].panes: needs at least one pane")
-  contains(bad, "app.tabs[1].panes[2]: a group has only split and panes")
+  contains(bad, "app.tabs[1].panes[2]: a group has only split, size and panes")
   contains(bad, 'app.tabs[2].panes[1].split: must be "right", "down" or "grid"')
   contains(bad, "app.tabs[2].panes[2].panes[1]: label is required")
 end)
@@ -246,7 +246,7 @@ test("stop settings: defaults, overrides, errors", function()
   contains(bad, 'app.stop.pane: unknown key; use "servers" or "panes"')
   contains(bad, "app.servers[1].stop: must be")
   contains(bad, "app.tabs[1].panes[1].stop: must be")
-  contains(bad, "app.tabs[1].panes[2]: a group has only split and panes")
+  contains(bad, "app.tabs[1].panes[2]: a group has only split, size and panes")
   contains(bad, "other.stop: must be an object")
 end)
 
@@ -355,6 +355,18 @@ test("layout splits panes evenly", function()
   eq(layout.panes(L, { { label = "a" }, { label = "b" } }, "down").v, 0.5)
 end)
 
+test("layout uses pane sizes and splits the rest evenly", function()
+  local t = layout.panes(L, { { label = "a", size = 0.7 }, { label = "b" } }, "right")
+  eq(t.h, 0.7)
+  t = layout.panes(L, { { label = "a", size = 0.5 }, { label = "b" }, { label = "c" } }, "down")
+  eq(t.v, 0.5)
+  eq(t.b.v, 0.5)
+  t =
+    layout.panes(L, { { label = "a", size = 0.2 }, { label = "b", size = 0.3 }, { label = "c", size = 0.5 } }, "right")
+  eq(t.h, 0.2)
+  eq(t.b.h, 0.3 / 0.8)
+end)
+
 test("grid rows fill left to right, top to bottom", function()
   eq(layout.grid_rows(1), { 1 })
   eq(layout.grid_rows(3), { 2, 1 })
@@ -426,8 +438,8 @@ test("block share multiplies the layer bounds by the pane's rect", function()
 end)
 
 test("ui fit centers, grows with the list, and stays inside the window", function()
-  eq(layout.list_rows(0, 0), 10)
-  eq(layout.list_rows(2, 3), 17)
+  eq(layout.list_rows(0, 0), 12)
+  eq(layout.list_rows(2, 3), 19)
   local b = layout.fit(200, 50, 20)
   local edit = layout.fit(200, 50, layout.EDIT_ROWS)
   eq(edit[2] + edit[4] / 2, 0.5, "edit form is centered")
@@ -967,6 +979,22 @@ test("capture reads splits back as panes, grids and groups", function()
   eq(capture.grids(capture.tree(uneven, by_label)).split, "grid", "2 over 1 is the 3-pane grid")
   local stacked = split("vertical", leaf("a"), leaf("b"))
   eq(capture.grids(capture.tree(stacked, by_label)).split, "down")
+  local wide = split(
+    "horizontal",
+    leaf("w", 0, 0, 0.7, 1),
+    split("vertical", leaf("t", 0.7, 0, 0.3, 0.25), leaf("u", 0.7, 0.25, 0.3, 0.75))
+  )
+  local sized = capture.grids(capture.tree(wide, by_label))
+  eq({ sized.panes[1].size, sized.panes[2].size }, { 0.7, 0.3 })
+  eq({ sized.panes[2].panes[1].size, sized.panes[2].panes[2].size }, { 0.25, 0.75 })
+  local even = capture.tree(split("horizontal", leaf("a", 0, 0, 0.5, 1), leaf("b", 0.5, 0, 0.5, 1)), by_label)
+  eq({ even.panes[1].size, even.panes[2].size }, { nil, nil }, "even splits leave size out")
+  local tall = split(
+    "vertical",
+    split("horizontal", leaf("a", 0, 0, 0.5, 0.8), leaf("b", 0.5, 0, 0.5, 0.8)),
+    split("horizontal", leaf("c", 0, 0.8, 0.5, 0.2), leaf("d", 0.5, 0.8, 0.5, 0.2))
+  )
+  eq(capture.grids(capture.tree(tall, by_label)).split, "down", "a resized grid keeps its rows")
   local skipped = capture.tree(split("horizontal", leaf("a"), leaf("gone")), function(id)
     return id ~= "gone" and { label = id } or nil
   end)
@@ -1131,8 +1159,8 @@ test("capture live prefers what runs now and keeps pane stop", function()
   eq(live[2], { label = "tests", cmd = "make test" }, "falls back to the workspace's command")
 end)
 
-test("freeze walks each pane's tree, parents first, own processes only", function()
-  local procs = freeze.parse_ps(table.concat({
+test("pause walks each pane's tree, parents first, own processes only", function()
+  local procs = pause.parse_ps(table.concat({
     "    1     0     0 Ss",
     "  100     1     0 Ss",
     "  101   100   501 S",
@@ -1146,9 +1174,9 @@ test("freeze walks each pane's tree, parents first, own processes only", functio
   }, "\n"))
   eq(#procs, 9)
   eq(procs[3], { pid = 101, ppid = 100, uid = 501, stat = "S" })
-  eq(freeze.order({ 100, 200 }, procs, 501), { 101, 102, 104, 103, 200, 201 })
-  eq(freeze.order({ 100, 101 }, procs, 501), { 101, 102, 104, 103 }, "each process once")
-  eq(freeze.order({ 999 }, procs, 501), {})
+  eq(pause.order({ 100, 200 }, procs, 501), { 101, 102, 104, 103, 200, 201 })
+  eq(pause.order({ 100, 101 }, procs, 501), { 101, 102, 104, 103 }, "each process once")
+  eq(pause.order({ 999 }, procs, 501), {})
 end)
 
 local function state_api(files)
@@ -1180,41 +1208,41 @@ local function state_api(files)
     signals
 end
 
-test("thaw wakes children before their shell, only for the same session", function()
-  local files = { ["/st/frozen/app.json"] = '{ session_id = "s1", pids = { 101, 102, 103 } }' }
+test("unpause wakes children before their shell, only for the same session", function()
+  local files = { ["/st/paused/app.json"] = '{ session_id = "s1", pids = { 101, 102, 103 } }' }
   local api, signals = state_api(files)
   local ws = { slug = "app" }
-  eq(freeze.is_frozen(api, "/st", ws, "s1"), true)
-  eq(freeze.is_frozen(api, "/st", ws, "s2"), false, "another session")
-  eq(freeze.is_frozen(api, "/st", ws, nil), false, "not open")
-  eq(freeze.thaw(api, "/st", ws, "s1"), true)
+  eq(pause.is_paused(api, "/st", ws, "s1"), true)
+  eq(pause.is_paused(api, "/st", ws, "s2"), false, "another session")
+  eq(pause.is_paused(api, "/st", ws, nil), false, "not open")
+  eq(pause.unpause(api, "/st", ws, "s1"), true)
   eq(signals, { "CONT 103,102,101" })
-  eq(files["/st/frozen/app.json"], nil, "forgets the freeze")
-  files["/st/frozen/app.json"] = '{ session_id = "old", pids = { 5 } }'
-  eq(freeze.thaw(api, "/st", ws, "s1"), false)
-  eq(#signals, 1, "a stale freeze sends nothing")
-  eq(files["/st/frozen/app.json"], nil, "and is dropped")
+  eq(files["/st/paused/app.json"], nil, "forgets the pause")
+  files["/st/paused/app.json"] = '{ session_id = "old", pids = { 5 } }'
+  eq(pause.unpause(api, "/st", ws, "s1"), false)
+  eq(#signals, 1, "a stale pause sends nothing")
+  eq(files["/st/paused/app.json"], nil, "and is dropped")
 end)
 
-test("snooze resumes agents where they left off", function()
-  eq(snooze.resume_cmd("opencode"), "opencode --continue")
-  eq(snooze.resume_cmd("/Users/me/.opencode/bin/opencode"), "/Users/me/.opencode/bin/opencode --continue")
-  eq(snooze.resume_cmd("claude"), "claude --continue")
-  eq(snooze.resume_cmd("claude --model opus"), "claude --continue --model opus")
-  eq(snooze.resume_cmd("codex"), "codex resume --last")
-  eq(snooze.resume_cmd("codex resume --last"), "codex resume --last", "already resuming")
-  eq(snooze.resume_cmd("claude --continue"), "claude --continue")
-  eq(snooze.resume_cmd("claude -r abc"), "claude -r abc")
-  eq(snooze.resume_cmd("opencode run fix it"), "opencode run fix it", "a subcommand is left alone")
-  eq(snooze.resume_cmd("npm run dev"), "npm run dev")
-  eq(snooze.resume_cmd(nil), nil)
+test("stash resumes agents where they left off", function()
+  eq(stash.resume_cmd("opencode"), "opencode --continue")
+  eq(stash.resume_cmd("/Users/me/.opencode/bin/opencode"), "/Users/me/.opencode/bin/opencode --continue")
+  eq(stash.resume_cmd("claude"), "claude --continue")
+  eq(stash.resume_cmd("claude --model opus"), "claude --continue --model opus")
+  eq(stash.resume_cmd("codex"), "codex resume --last")
+  eq(stash.resume_cmd("codex resume --last"), "codex resume --last", "already resuming")
+  eq(stash.resume_cmd("claude --continue"), "claude --continue")
+  eq(stash.resume_cmd("claude -r abc"), "claude -r abc")
+  eq(stash.resume_cmd("opencode run fix it"), "opencode run fix it", "a subcommand is left alone")
+  eq(stash.resume_cmd("npm run dev"), "npm run dev")
+  eq(stash.resume_cmd(nil), nil)
 end)
 
-test("snooze resumes each agent's own conversation", function()
-  eq(snooze.resume_cmd("claude --model opus", "abc-1"), "claude --resume abc-1 --model opus")
-  eq(snooze.resume_cmd("codex", "019f-2"), "codex resume 019f-2")
-  eq(snooze.resume_cmd("opencode", "ses_3"), "opencode --session ses_3")
-  eq(snooze.resume_cmd("npm run dev", "x"), "npm run dev")
+test("stash resumes each agent's own conversation", function()
+  eq(stash.resume_cmd("claude --model opus", "abc-1"), "claude --resume abc-1 --model opus")
+  eq(stash.resume_cmd("codex", "019f-2"), "codex resume 019f-2")
+  eq(stash.resume_cmd("opencode", "ses_3"), "opencode --session ses_3")
+  eq(stash.resume_cmd("npm run dev", "x"), "npm run dev")
 
   local running, writes = { b1 = true, b2 = true, b3 = true }, {}
   local api = {
@@ -1240,16 +1268,16 @@ test("snooze resumes each agent's own conversation", function()
       return b == "b2" and "To reconnect, run:\n  codex resume 019f-old\n  codex resume 019f-new\n" or ""
     end,
   }
-  eq(snooze.conversation(api, "s", "b1", "claude", "/c"), "aaaa-1111")
+  eq(stash.conversation(api, "s", "b1", "claude", "/c"), "aaaa-1111")
   eq(#writes, 0, "claude is read from its session file, not quit")
-  eq(snooze.conversation(api, "s", "b2", "codex", "/c"), "019f-new")
+  eq(stash.conversation(api, "s", "b2", "codex", "/c"), "019f-new")
   eq(writes, { "b2\3" })
-  eq(snooze.conversation(api, "s", "b3", "opencode", "/c"), nil, "nothing printed falls back")
+  eq(stash.conversation(api, "s", "b3", "opencode", "/c"), nil, "nothing printed falls back")
   eq(#writes, 4, "gives up after three Ctrl-C")
-  eq(snooze.conversation(api, "s", "b3", "claude --resume x", "/c"), nil, "already resuming")
+  eq(stash.conversation(api, "s", "b3", "claude --resume x", "/c"), nil, "already resuming")
 end)
 
-test("snooze saves idle shells' screens and resumes with the workspace's hooks", function()
+test("stash saves idle shells' screens and resumes with the workspace's hooks", function()
   local api = {
     screen = function(_, b)
       return "screen of " .. b
@@ -1266,7 +1294,7 @@ test("snooze saves idle shells' screens and resumes with the workspace's hooks",
       },
     },
   }
-  local snap = snooze.snapshot(api, "s1", d)
+  local snap = stash.snapshot(api, "s1", d)
   eq(snap.screens, { ["1"] = "screen of b1", ["3"] = "screen of b3" })
   eq(snap.spec.tabs[1].panes[2].cmd, "claude --continue")
   eq(snap.spec.tabs[2].panes[1], { label = "tail" }, "empty values pruned")
@@ -1277,14 +1305,14 @@ test("snooze saves idle shells' screens and resumes with the workspace's hooks",
     servers = { { label = "web", cmd = "pnpm dev" }, { label = "db", cmd = "pg" } },
     tabs = { { name = "main" } },
   }
-  local ws = snooze.workspace(raw, snap, "app", HOME)
+  local ws = stash.workspace(raw, snap, "app", HOME)
   eq(ws.hooks.before_start, "echo hi")
   eq(ws.focus, nil)
   eq(#ws.servers, 1, "servers that were stopped stay stopped")
   eq(ws.tabs[1].name, "code")
   local files = {}
   local fs = state_api(files)
-  snooze.place_screens(fs, "/st", ws, snap)
+  stash.place_screens(fs, "/st", ws, snap)
   eq(ws.tabs[1].panes[1].replay, "/st/screens/app-1.vt")
   eq(ws.tabs[1].panes[2].replay, nil)
   eq(files["/st/screens/app-3.vt"], "screen of b3")

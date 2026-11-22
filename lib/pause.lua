@@ -49,10 +49,10 @@ local function reversed(list)
 end
 
 local function file(dir, ws)
-  return state.file(dir, "frozen", ws)
+  return state.file(dir, "paused", ws)
 end
 
-function M.is_frozen(api, dir, ws, sid)
+function M.is_paused(api, dir, ws, sid)
   local rec = sid and state.read(api, file(dir, ws))
   local pid = rec and rec.session_id == sid and rec.pids and rec.pids[1]
   if not pid then
@@ -87,7 +87,7 @@ function M.run(api, dir, ws, sid, skip)
   return { pids = pids, panes = panes }
 end
 
-function M.thaw(api, dir, ws, sid)
+function M.unpause(api, dir, ws, sid)
   local f = file(dir, ws)
   local rec = state.read(api, f)
   if rec == nil then

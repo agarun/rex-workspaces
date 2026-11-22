@@ -88,7 +88,7 @@ function M.conversation(api, sid, block_id, cmd, claude_dir)
 end
 
 local function file(dir, ws)
-  return state.file(dir, "snoozed", ws)
+  return state.file(dir, "stashed", ws)
 end
 
 function M.exists(api, dir, ws)

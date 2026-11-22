@@ -11,6 +11,7 @@ pub const BUTTON_HEIGHT: u16 = 1;
 pub enum Target {
     Row(usize),
     Button(usize),
+    Extra(usize),
     PickerRow(usize),
     Browse(usize),
     Side(usize),
@@ -59,11 +60,6 @@ impl Button {
             tone,
             enabled: true,
         }
-    }
-
-    pub fn enabled(mut self, on: bool) -> Self {
-        self.enabled = on;
-        self
     }
 
     pub fn width(&self) -> u16 {

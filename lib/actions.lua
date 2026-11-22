@@ -1,11 +1,11 @@
 local capture = require("rex-workspaces.lib.capture")
 local config = require("rex-workspaces.lib.config")
 local detect = require("rex-workspaces.lib.detect")
-local freeze = require("rex-workspaces.lib.freeze")
+local pause = require("rex-workspaces.lib.pause")
 local layout = require("rex-workspaces.lib.layout")
 local lifecycle = require("rex-workspaces.lib.lifecycle")
 local path = require("rex-workspaces.lib.path")
-local snooze = require("rex-workspaces.lib.snooze")
+local stash = require("rex-workspaces.lib.stash")
 local spec = require("rex-workspaces.lib.spec")
 local store = require("rex-workspaces.lib.store")
 local ui_labels = require("rex-workspaces.lib.ui")
@@ -17,34 +17,30 @@ local CATEGORY = "Workspaces"
 
 local UI_PANES = { [ui_labels.LABEL] = true, [ui_labels.EDIT_LABEL] = true }
 
-M.VERBS = { "open", "start", "stop", "close", "restart", "freeze", "thaw", "snooze", "resume" }
+M.VERBS = { "open", "start", "stop", "restart", "pause", "save_close", "close" }
 
-local EVERY_WORKSPACE = { open = true, start = true, close = true, freeze = true, snooze = true }
+local EVERY_WORKSPACE = { open = true, start = true, pause = true, save_close = true, close = true }
 
 local TITLES = {
   open = "Open %s",
   start = "Start %s",
   stop = "Stop %s Servers",
-  close = "Close %s",
   restart = "Restart %s Servers",
-  freeze = "Freeze %s",
-  thaw = "Thaw %s",
-  snooze = "Snooze %s",
-  resume = "Resume %s",
+  pause = "Pause %s",
+  save_close = "Save & Close %s",
+  close = "Close %s",
 }
 
 local STOP_ALL = "Stop %s"
 
 local DESCRIPTIONS = {
-  open = "Switch to the workspace's session as it is. If it isn't open yet, start it.",
+  open = "Switch to the workspace's session, or start it. A paused one continues and a saved one is rebuilt.",
   start = "Open the workspace's session, or switch to it, and start any servers that aren't running.",
   stop = "Stop the servers, and the tab panes if the workspace says so. See the stop option.",
-  close = "Stop the servers, then close the whole session.",
   restart = "Stop the servers, then start them again.",
-  freeze = "Pause every process in the session. They keep their memory and ports until you thaw or open it.",
-  thaw = "Continue the processes that Freeze paused.",
-  snooze = "Save the session's layout, commands and scrollback, then close it. Open or resume brings it back.",
-  resume = "Open a snoozed workspace as it was, then forget the snooze.",
+  pause = "Stop every process in the session where it is. They keep their memory and ports until you open it.",
+  save_close = "Save the session's layout, scrollback and agent conversations, then close it. Open brings it back.",
+  close = "Stop the servers, then close the whole session. Forgets a saved session.",
 }
 
 local function per_workspace(ws, verb)
@@ -114,8 +110,8 @@ function M.new(rex, api, ui, settings)
     local out = {}
     for _, ws in ipairs(cfg.list) do
       local st = lifecycle.status(api, ws, sessions)
-      st.frozen = freeze.is_frozen(api, settings.state, ws, st.session_id)
-      st.snoozed = not st.running and snooze.exists(api, settings.state, ws)
+      st.paused = pause.is_paused(api, settings.state, ws, st.session_id)
+      st.saved = not st.running and stash.exists(api, settings.state, ws)
       st.spec = cfg.raw[ws.name]
       st.file = cfg.origin[ws.name]
       out[#out + 1] = st
@@ -177,110 +173,98 @@ function M.new(rex, api, ui, settings)
     })
   end
 
-  local function thaw(ws, sid)
+  local function unpause(ws, sid)
     sid = sid or lifecycle.find_session(api, ws.name)
-    return sid ~= nil and freeze.thaw(api, settings.state, ws, sid)
+    return sid ~= nil and pause.unpause(api, settings.state, ws, sid)
   end
 
-  local function snoozed(ws)
-    return snooze.exists(api, settings.state, ws) and lifecycle.find_session(api, ws.name) == nil
+  local function stashed(ws)
+    return stash.exists(api, settings.state, ws) and lifecycle.find_session(api, ws.name) == nil
   end
 
   local function resume(ws, ctx, select)
-    local snap = snooze.read(api, settings.state, ws)
+    local snap = stash.read(api, settings.state, ws)
     if snap == nil or type(snap.spec) ~= "table" then
-      snooze.discard(api, settings.state, ws)
-      error("the snooze of " .. ws.name .. " could not be read", 0)
+      stash.discard(api, settings.state, ws)
+      error("the saved session of " .. ws.name .. " could not be read", 0)
     end
-    local resumed = snooze.workspace(self.load().raw[ws.name], snap, ws.name, settings.home)
-    snooze.place_screens(api, settings.state, resumed, snap)
+    local resumed = stash.workspace(self.load().raw[ws.name], snap, ws.name, settings.home)
+    stash.place_screens(api, settings.state, resumed, snap)
     local r = lifecycle.start(api, L, placed(resumed), { ctx = ctx, select = select })
-    snooze.discard(api, settings.state, ws)
+    stash.discard(api, settings.state, ws)
     r.resumed = true
     return r
   end
 
   local verbs = {
-    open = function(ws, ctx)
-      if snoozed(ws) then
-        return resume(ws, ctx, true)
+    open = function(ws, ctx, args)
+      local select = not (args and args.select == false)
+      if stashed(ws) then
+        return resume(ws, ctx, select)
       end
-      thaw(ws)
-      return lifecycle.open(api, L, placed(ws), { ctx = ctx })
+      unpause(ws)
+      return lifecycle.open(api, L, placed(ws), { ctx = ctx, select = select })
     end,
     start = function(ws, ctx, args)
-      if snoozed(ws) then
+      if stashed(ws) then
         return resume(ws, ctx, args and args.select)
       end
-      thaw(ws)
+      unpause(ws)
       return lifecycle.start(api, L, placed(ws), { ctx = ctx, select = args and args.select })
     end,
     stop = function(ws)
-      thaw(ws)
+      unpause(ws)
       return lifecycle.stop(api, ws)
     end,
     close = function(ws)
-      thaw(ws)
-      local was_snoozed = snoozed(ws)
-      snooze.discard(api, settings.state, ws)
+      unpause(ws)
+      local was_stashed = stashed(ws)
+      stash.discard(api, settings.state, ws)
       local r = lifecycle.close(api, ws)
-      if was_snoozed then
-        r.message = "Discarded the snooze of " .. ws.name .. "."
+      if was_stashed then
+        r.message = "Forgot the saved session of " .. ws.name .. "."
       end
       return r
     end,
     restart = function(ws, ctx, args)
-      if snoozed(ws) then
+      if stashed(ws) then
         return resume(ws, ctx, args and args.select)
       end
-      thaw(ws)
+      unpause(ws)
       return lifecycle.restart(api, L, placed(ws), { ctx = ctx, select = args and args.select })
     end,
-    freeze = function(ws)
+    pause = function(ws)
       local sid = lifecycle.find_session(api, ws.name)
       if sid == nil then
-        return { frozen = false, message = ws.name .. " is not open." }
+        return { paused = false, message = ws.name .. " is not open." }
       end
-      if freeze.is_frozen(api, settings.state, ws, sid) then
-        return { frozen = true, session_id = sid, message = ws.name .. " is already frozen." }
+      if pause.is_paused(api, settings.state, ws, sid) then
+        return { paused = true, session_id = sid, message = ws.name .. " is already paused." }
       end
-      local r = freeze.run(api, settings.state, ws, sid, UI_PANES)
+      local r = pause.run(api, settings.state, ws, sid, UI_PANES)
       if #r.pids == 0 then
-        return { frozen = false, session_id = sid, message = ws.name .. " has nothing running to freeze." }
+        return { paused = false, session_id = sid, message = ws.name .. " has nothing running to pause." }
       end
       local what = count(#r.pids, "process", "processes") .. " in " .. count(r.panes, "pane", "panes")
       return {
-        frozen = true,
+        paused = true,
         session_id = sid,
         processes = #r.pids,
-        message = "Froze " .. ws.name .. ": " .. what .. ".",
+        message = "Paused " .. ws.name .. ": " .. what .. ".",
       }
     end,
-    thaw = function(ws)
-      local sid = lifecycle.find_session(api, ws.name)
-      if not thaw(ws, sid) then
-        return { thawed = false, message = ws.name .. " is not frozen." }
-      end
-      return { thawed = true, session_id = sid, message = "Thawed " .. ws.name .. "." }
-    end,
-    snooze = function(ws)
+    save_close = function(ws)
       local sid = lifecycle.find_session(api, ws.name)
       if sid == nil then
-        return { snoozed = false, message = ws.name .. " is not open." }
+        return { saved = false, message = ws.name .. " is not open." }
       end
-      thaw(ws, sid)
+      unpause(ws, sid)
       local claude_dir = os.getenv("CLAUDE_CONFIG_DIR") or (settings.home .. "/.claude")
-      snooze.write(api, settings.state, ws, snooze.snapshot(api, sid, draft(sid, true), claude_dir))
+      stash.write(api, settings.state, ws, stash.snapshot(api, sid, draft(sid, true), claude_dir))
       local r = lifecycle.close(api, ws)
-      r.snoozed = true
-      r.message = "Snoozed " .. ws.name .. ". Open it to resume."
+      r.saved = true
+      r.message = "Saved and closed " .. ws.name .. ". Open it to bring it back."
       return r
-    end,
-    resume = function(ws, ctx, args)
-      if not snoozed(ws) then
-        return { resumed = false, message = ws.name .. " is not snoozed." }
-      end
-      return resume(ws, ctx, args and args.select)
     end,
   }
 

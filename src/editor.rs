@@ -171,6 +171,7 @@ pub struct Editor {
     pub confirm_remove: bool,
     pub pending: bool,
     pub recording: bool,
+    pub session: Option<String>,
 }
 
 pub const SHORTCUT: &str = "/key";
@@ -193,6 +194,7 @@ impl Editor {
             confirm_remove: false,
             pending: false,
             recording: false,
+            session: None,
         };
         editor.focus_row(1);
         editor
@@ -769,6 +771,12 @@ impl Editor {
         if self.browse_target().is_some() {
             out.push(("browse", Button::new("Browse", "ctrl+o", Tone::Normal)));
         }
+        if self.previous.is_some() && self.session.is_some() {
+            out.push((
+                "layout",
+                Button::new("Use current layout", "ctrl+l", Tone::Normal),
+            ));
+        }
         if self.previous.is_some() {
             out.push((
                 "duplicate",
@@ -1180,6 +1188,18 @@ mod tests {
         assert_eq!(parse_bounds("0.6 0.05 0.38"), None);
         assert_eq!(parse_bounds("0.6 0.05 0.38 2"), None);
         assert_eq!(parse_bounds("a b c d"), None);
+    }
+
+    #[test]
+    fn current_layout_only_for_a_running_workspace() {
+        let has = |ed: &Editor| ed.buttons().iter().any(|(a, _)| *a == "layout");
+        let mut ed = Editor::new("shop".into(), Some("shop".into()), json!({}));
+        assert!(!has(&ed));
+        ed.session = Some("session:1".into());
+        assert!(has(&ed));
+        let mut fresh = Editor::new("new".into(), None, json!({}));
+        fresh.session = Some("session:1".into());
+        assert!(!has(&fresh));
     }
 
     #[test]

@@ -98,14 +98,18 @@ Then switch to that session in Rex.
 Press <kbd>Cmd</kbd>+<kbd>O</kbd> in Rex to open or close the workspaces window. Press it again to
 close the window.
 
-- Select a workspace, then click a button or press its own hotkey.
+- Select a workspace, then click a button or press its key. Only the buttons that apply to
+  the workspace are shown. Running workspaces are listed first, and the workspace of the
+  session you are in is selected when the window opens.
 - **New** creates a workspace for the current folder. It suggests the dev servers it finds in
   `package.json`, `Makefile` and `Procfile`. Examine them, then save. The name is the
   folder's name, or if not available it's just `untitled`.
-- **Save as new** saves the session you are in as a new workspace. See
+- **Save new** saves the session you are in as a new workspace. See
   [Save a session](#save-a-session).
 - **Edit** opens a form with all options, a folder picker, and the commands found in the
-  folder.
+  folder. For a running workspace, **Use current layout** (<kbd>Ctrl</kbd>+<kbd>L</kbd>)
+  replaces its tabs and panes with the ones in its session, including the sizes you dragged.
+  Save to keep them.
 - To set a **Shortcut** in the form, press <kbd>Enter</kbd>, then press the keys, for example
   <kbd>Ctrl</kbd>+<kbd>Cmd</kbd>+<kbd>1</kbd>. You can also type the shortcut. The window
   cannot record keys that Rex already uses, for example <kbd>Cmd</kbd>+<kbd>O</kbd>.
@@ -114,15 +118,14 @@ All configuration is saved in a `workspaces.json` file on your machine.
 
 ### Actions
 
-| Action      | Result                                                                                                              |
-| ----------- | ------------------------------------------------------------------------------------------------------------------- |
-| **Open**    | Switches to the session. If the session does not exist, starts it.                                                  |
-| **Start**   | Opens the session and starts each server that is not running.                                                       |
-| **Stop**    | Stops the servers: Ctrl-C, then closes their panes. Can also stop tab panes. See [What Stop does](#what-stop-does). |
-| **Restart** | Stops the servers only, then starts them. Tab panes are not touched.                                                |
-| **Freeze**  | Pauses every process in the session. **Thaw** continues them. See [Freeze and snooze](#freeze-and-snooze).          |
-| **Snooze**  | Saves and closes the session. **Open** or **Resume** brings it back. See [Freeze and snooze](#freeze-and-snooze).   |
-| **Close**   | Sends Ctrl-C to the servers, then closes the whole session.                                                         |
+| Action           | Shown when                                        | Result                                                                                                                                        |
+| ---------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Open**         | Always                                            | Switches to the session. If it does not exist, starts it. A paused workspace continues and a saved one is rebuilt.                            |
+| **Start**        | Some servers are down                             | Starts the workspace without switching to it, or starts each server that is not running. Servers you stopped stay stopped until you press it. |
+| **Restart**      | Running, a server is up                           | Stops the servers only, then starts them. Tab panes are not touched.                                                                          |
+| **Stop**         | Running, a server is up or Stop acts on tab panes | Ctrl-C to the servers, then closes their panes. Can also stop tab panes. See [What Stop does](#what-stop-does).                               |
+| **Save & Close** | Running                                           | Saves the session and closes it. The next **Open** brings it back. See [Save & Close](#save--close).                                          |
+| **Close**        | Running or paused                                 | Sends Ctrl-C to the servers, then closes the whole session. Shows as **Forget saved** on a saved workspace.                                   |
 
 These actions are also in the command palette, for example `Workspace: Open my-project`.
 
@@ -135,26 +138,27 @@ rex do workspace_list
 
 ### Keys
 
-| Keys                                                             | List                                              | Edit form                                           |
-| ---------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------- |
-| <kbd>↑</kbd> <kbd>↓</kbd> or <kbd>j</kbd> <kbd>k</kbd>           | Select a workspace                                | Go to the next or previous field                    |
-| <kbd>Tab</kbd> <kbd>←</kbd> <kbd>→</kbd>                         | Select a button. <kbd>Enter</kbd> pushes it.      | Go to the next field                                |
-| <kbd>/</kbd> or <kbd>f</kbd>                                     | Filter by name. <kbd>Esc</kbd> clears the filter. |                                                     |
-| <kbd>Enter</kbd>                                                 | Open                                              | Toggle, or go to the next field                     |
-| <kbd>s</kbd>                                                     | Stop. If no server runs, start them.              |                                                     |
-| <kbd>r</kbd> <kbd>c</kbd> <kbd>e</kbd> <kbd>n</kbd> <kbd>w</kbd> | Restart, Close, Edit, New, Save as new            |                                                     |
-| <kbd>x</kbd> <kbd>z</kbd>                                        | Freeze or thaw, snooze or resume                  |                                                     |
-| <kbd>←</kbd> <kbd>→</kbd> <kbd>Home</kbd> <kbd>End</kbd>         |                                                   | Move the cursor, or change a choice                 |
-| <kbd>Ctrl</kbd>+<kbd>W</kbd> / <kbd>Ctrl</kbd>+<kbd>U</kbd>      |                                                   | Delete a word / clear the field                     |
-| <kbd>Ctrl</kbd>+<kbd>O</kbd>                                     |                                                   | Select a folder                                     |
-| <kbd>Ctrl</kbd>+<kbd>D</kbd>                                     |                                                   | Duplicate as a new workspace                        |
-| <kbd>Ctrl</kbd>+<kbd>X</kbd>                                     |                                                   | Remove the server, tab, group or pane at the cursor |
-| <kbd>Ctrl</kbd>+<kbd>S</kbd> / <kbd>Esc</kbd>                    |                                                   | Save / cancel                                       |
-| <kbd>q</kbd> or <kbd>Esc</kbd>                                   | Close the window                                  |                                                     |
+| Keys                                                        | List                                              | Edit form                                           |
+| ----------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------- |
+| <kbd>↑</kbd> <kbd>↓</kbd> or <kbd>j</kbd> <kbd>k</kbd>      | Select a workspace                                | Go to the next or previous field                    |
+| <kbd>Tab</kbd> <kbd>←</kbd> <kbd>→</kbd>                    | Select a button. <kbd>Enter</kbd> pushes it.      | Go to the next field                                |
+| <kbd>/</kbd> or <kbd>f</kbd>                                | Filter by name. <kbd>Esc</kbd> clears the filter. |                                                     |
+| <kbd>Enter</kbd>                                            | Open                                              | Toggle, or go to the next field                     |
+| <kbd>s</kbd> <kbd>x</kbd> <kbd>r</kbd>                      | Start, stop, restart servers                      |                                                     |
+| <kbd>Ctrl</kbd>+<kbd>S</kbd> <kbd>c</kbd>                   | Save & Close, Close                               |                                                     |
+| <kbd>e</kbd> <kbd>n</kbd> <kbd>w</kbd>                      | Edit, New, Save new                               |                                                     |
+| <kbd>←</kbd> <kbd>→</kbd> <kbd>Home</kbd> <kbd>End</kbd>    |                                                   | Move the cursor, or change a choice                 |
+| <kbd>Ctrl</kbd>+<kbd>W</kbd> / <kbd>Ctrl</kbd>+<kbd>U</kbd> |                                                   | Delete a word / clear the field                     |
+| <kbd>Ctrl</kbd>+<kbd>O</kbd>                                |                                                   | Select a folder                                     |
+| <kbd>Ctrl</kbd>+<kbd>D</kbd>                                |                                                   | Duplicate as a new workspace                        |
+| <kbd>Ctrl</kbd>+<kbd>L</kbd>                                |                                                   | Use the running session's layout                    |
+| <kbd>Ctrl</kbd>+<kbd>X</kbd>                                |                                                   | Remove the server, tab, group or pane at the cursor |
+| <kbd>Ctrl</kbd>+<kbd>S</kbd> / <kbd>Esc</kbd>               |                                                   | Save / cancel                                       |
+| <kbd>q</kbd> or <kbd>Esc</kbd>                              | Close the window                                  |                                                     |
 
 ### Save a session
 
-Arrange tabs and panes in Rex, then press **Save as new** (<kbd>w</kbd>) in the workspaces
+Arrange tabs and panes in Rex, then press **Save new** (<kbd>w</kbd>) in the workspaces
 window, or run `Workspace: Save This Session…` from the command palette. The form opens with
 the session's name. If the session has no name, or its name is your login name, the form uses
 `untitled`. Change the name if you like, check the result, then save. The workspace
@@ -228,7 +232,7 @@ both are ignored.
 
 In the edit window, **Minimized** and **Position** are set per server. Type Position as four numbers, for
 example `0.6 0.32 0.38 0.3`, or leave it empty for the default. To find numbers, arrange the panes in Rex
-and use **Save as new**.
+and use **Save new**.
 
 ### Pane layouts
 
@@ -254,7 +258,15 @@ A 2x2 grid:
 }
 ```
 
-For other layouts, put a group in `panes[]`. A group has only `split` and `panes[]`, and fills
+A pane or group can have a `size`: its share of the width (`"right"`) or height (`"down"`),
+from 0 to 1. Panes without one split what is left evenly. **Save new**, **Save & Close** and
+**Use current layout** record the sizes you dragged. A grid ignores `size`.
+
+```json
+"panes": [{ "label": "editor", "size": 0.7 }, { "label": "shell" }]
+```
+
+For other layouts, put a group in `panes[]`. A group has only `split`, `size` and `panes[]`, and fills
 one pane's place. A main pane with a stack of two on its right:
 
 ```json
@@ -272,46 +284,45 @@ Groups can hold groups. The edit form shows groups and lets you change their lay
 panes. To make a new group, edit `workspaces.json`, or arrange the panes in Rex and
 [save the session](#save-a-session).
 
-## Freeze and snooze
+## Save & Close
 
-Both put a workspace aside so it stops using the CPU. Pick by how long you'll be away.
+**Close** ends a workspace, and the next **Open** starts it fresh from its definition. **Save &
+Close** ends it too, but first saves where you were, so the next **Open** puts you back. It frees
+the session's memory and ports, and what it saves survives restarts and reboots. The card shows
+`saved` until you open it.
 
-|                  | **Freeze** (<kbd>x</kbd>)                         | **Snooze** (<kbd>z</kbd>)                                  |
-| ---------------- | ------------------------------------------------- | ---------------------------------------------------------- |
-| Processes        | Paused, exactly as they are                       | Ended, then started again on resume                        |
-| Memory and ports | Still held                                        | Freed                                                      |
-| Survives         | Until Rex or the machine restarts                 | Restarts and reboots                                       |
-| Comes back with  | **Thaw**, or **Open**                             | **Resume**, or **Open**                                    |
-| Shows as         | `frozen`                                          | `snoozed`                                                  |
-
-**Freeze** pauses each pane's shell and everything it runs, servers included, with `SIGSTOP`, and
-**Thaw** continues them. Unsaved editor buffers, REPLs and agents carry on where they were. A
-frozen server still holds its port, so requests to it wait until you thaw. **Stop**, **Restart**
-and **Close** thaw the workspace first.
-
-**Snooze** saves the session's tabs, panes, folders, running commands and the scrollback of idle
-shells, then closes it like **Close**. **Resume** opens it from what was saved and runs the
-`before_start` and `after_start` hooks:
+**Save & Close** saves the session's tabs, panes, pane sizes, folders, running commands and the
+scrollback of idle shells, then closes it like **Close**. **Open** rebuilds it from what was saved
+and runs the `before_start` and `after_start` hooks:
 
 - Idle shells show their old output, then a new prompt.
 - Running commands start again. Servers that were stopped stay stopped.
 - Each agent continues its own conversation, even with several in one folder. `claude` runs as
   `claude --resume <id>`, read from its session file. `codex` and `opencode` are quit with
-  <kbd>Ctrl</kbd>+<kbd>C</kbd> when you snooze, and run as `codex resume <id>` or
+  <kbd>Ctrl</kbd>+<kbd>C</kbd> when you save and close, and run as `codex resume <id>` or
   `opencode --session <id>` from the resume command they print. If no id is found, they continue
   the last conversation in that folder: `claude --continue`, `codex resume --last` or
   `opencode --continue`.
 - Program state that is not on disk, such as unsaved buffers, is lost.
 
-**Close** on a snoozed workspace discards what was saved. Snoozes are kept in
-`~/.local/state/rex-workspaces` (or `$XDG_STATE_HOME/rex-workspaces`).
+What was saved is used once. After that **Open** starts from the definition again. To make the
+current layout part of the definition, use **Use current layout** in **Edit**. **Forget saved**
+throws away what was saved. Saved sessions are kept in `~/.local/state/rex-workspaces` (or
+`$XDG_STATE_HOME/rex-workspaces`).
 
 ```sh
-rex do workspace_freeze name=my-project
-rex do workspace_thaw name=my-project
-rex do workspace_snooze name=my-project
-rex do workspace_resume name=my-project
+rex do workspace_save_close name=my-project
+rex do workspace_open name=my-project select=false
+rex do workspace_close name=my-project
 ```
+
+### Pause
+
+`rex do workspace_pause name=my-project`, or `Workspace: Pause my-project` in the command
+palette, stops each pane's shell and everything it runs, servers included, with `SIGSTOP`.
+Nothing ends and nothing uses the CPU. Memory and ports stay held, and panes look frozen.
+**Open** continues them where they were. **Stop**, **Restart** and **Close** continue the
+workspace first. A paused workspace is lost if Rex or the machine restarts.
 
 ## Worktrees
 

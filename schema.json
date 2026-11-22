@@ -71,6 +71,12 @@
       "default": "right",
       "description": "Panes side by side, stacked, or in a grid: rows of equal width, filled left to right. 4 panes make a 2x2 grid."
     },
+    "size": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "exclusiveMaximum": 1,
+      "description": "Share of the width (split right) or height (split down) this pane takes, from 0 to 1. Panes without a size split what is left evenly. Ignored in a grid."
+    },
     "node": { "oneOf": [{ "$ref": "#/definitions/pane" }, { "$ref": "#/definitions/group" }] },
     "group": {
       "type": "object",
@@ -79,6 +85,7 @@
       "description": "Panes that share one slot of the tab, split their own way. For example, a stack beside a main pane.",
       "properties": {
         "split": { "$ref": "#/definitions/split" },
+        "size": { "$ref": "#/definitions/size" },
         "panes": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/node" } }
       }
     },
@@ -91,6 +98,7 @@
         "cwd": { "type": "string", "description": "Folder, relative to root." },
         "cmd": { "type": "string", "description": "Command typed into the shell when the pane opens." },
         "stop": { "$ref": "#/definitions/stop", "description": "What Stop does to this pane. Default: the workspace's stop.panes." },
+        "size": { "$ref": "#/definitions/size" },
         "worktree": { "type": "string", "description": "Run in this git worktree of the folder's repository instead of the folder itself: a branch, a worktree folder name, or a path. The same subfolder is used in the worktree." }
       }
     },

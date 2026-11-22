@@ -24,6 +24,10 @@ pub enum Job {
     Capture {
         session: String,
     },
+    Layout {
+        session: String,
+        name: String,
+    },
 }
 
 pub enum Done {
@@ -46,6 +50,10 @@ pub enum Done {
         result: Result<Value, String>,
     },
     Captured(Result<Value, String>),
+    Layout {
+        name: String,
+        result: Result<Value, String>,
+    },
 }
 
 fn reloaded(result: Result<Value, String>) -> Result<Option<String>, String> {
@@ -77,6 +85,10 @@ fn run(job: Job) -> Done {
             Done::Detected { root, result }
         }
         Job::Capture { session } => Done::Captured(rex::capture(&session)),
+        Job::Layout { session, name } => Done::Layout {
+            name,
+            result: rex::capture(&session),
+        },
     }
 }
 

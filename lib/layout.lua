@@ -23,11 +23,35 @@ function M.grid_rows(n)
   return rows
 end
 
-local function chain(pair, items, from, to)
+local function chain(pair, items, from, to, sizes)
   if from == to then
     return items[from]
   end
-  return pair(1 / (to - from + 1), items[from], chain(pair, items, from + 1, to))
+  local rest = 0
+  for i = from, to do
+    rest = rest + (sizes and sizes[i] or 1)
+  end
+  local share = sizes and sizes[from] or 1
+  return pair(share / rest, items[from], chain(pair, items, from + 1, to, sizes))
+end
+
+function M.shares(panes)
+  local known, given = 0, 0
+  for _, p in ipairs(panes) do
+    if p.size then
+      known, given = known + p.size, given + 1
+    end
+  end
+  if given == 0 then
+    return nil
+  end
+  local missing = #panes - given
+  local fill = missing > 0 and math.max(1 - known, 0.05 * missing) / missing or 0
+  local out = {}
+  for i, p in ipairs(panes) do
+    out[i] = p.size or fill
+  end
+  return out
 end
 
 function M.panes(L, panes, split)
@@ -36,7 +60,7 @@ function M.panes(L, panes, split)
     built[i] = p.panes and M.panes(L, p.panes, p.split) or M.block(L, p)
   end
   if split ~= "grid" then
-    return chain(split == "down" and L.vertical or L.horizontal, built, 1, #built)
+    return chain(split == "down" and L.vertical or L.horizontal, built, 1, #built, M.shares(panes))
   end
   local rows, first = {}, 1
   for i, count in ipairs(M.grid_rows(#built)) do
@@ -74,6 +98,15 @@ local function first_block(node)
   return split and (first_block(split.before) or first_block(split.after))
 end
 
+local function has_block(blocks, block_id)
+  for _, b in ipairs(blocks or {}) do
+    if b.block_id == block_id then
+      return true
+    end
+  end
+  return false
+end
+
 local function contains(node, block_id)
   if node == nil then
     return false
@@ -90,7 +123,7 @@ function M.tiled_block(view, id)
       if layer.kind == "tiled" then
         tiled = first_block(layer.layout)
       end
-      if layer.layer_id == id or contains(layer.layout, id) then
+      if layer.layer_id == id or contains(layer.layout, id) or has_block(layer.blocks, id) then
         has = true
       end
     end
@@ -133,7 +166,7 @@ end
 function M.list_rows(count, most_servers)
   local servers = most_servers > 0 and most_servers + 1 or 0
   -- The button bar wraps to two lines in a narrow window.
-  return math.max(count, 1) * 3 + servers + 7
+  return math.max(count, 1) * 3 + servers + 9
 end
 
 function M.windows(L, ws)

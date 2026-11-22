@@ -6,12 +6,47 @@ local spec = require("rex-workspaces.lib.spec")
 
 local M = {}
 
-function M.tree(node, leaf)
+local function union(a, b)
+  if not (a and a[4] and b and b[4]) then
+    return nil
+  end
+  local x, y = math.min(a[1], b[1]), math.min(a[2], b[2])
+  return { x, y, math.max(a[1] + a[3], b[1] + b[3]) - x, math.max(a[2] + a[4], b[2] + b[4]) - y }
+end
+
+local function set_sizes(panes, axis, rects)
+  local total, sizes = 0, {}
+  for i, p in ipairs(panes) do
+    local r = rects[p]
+    if not (r and r[axis]) then
+      return
+    end
+    sizes[i] = r[axis]
+    total = total + r[axis]
+  end
+  local even = true
+  for i, s in ipairs(sizes) do
+    sizes[i] = math.min(0.99, math.max(0.01, math.floor(s / total * 100 + 0.5) / 100))
+    if math.abs(sizes[i] - 1 / #panes) > 0.02 then
+      even = false
+    end
+  end
+  for i, p in ipairs(panes) do
+    p.size = not even and sizes[i] or nil
+  end
+end
+
+function M.tree(node, leaf, rects)
+  rects = rects or setmetatable({}, { __mode = "k" })
   if node == nil then
     return nil
   end
   if node.block_id then
-    return leaf(node.block_id)
+    local p = leaf(node.block_id)
+    if p then
+      rects[p] = node.rect
+    end
+    return p
   end
   local s = node.split
   if s == nil then
@@ -20,7 +55,7 @@ function M.tree(node, leaf)
   local dir = s.direction == "vertical" and "down" or "right"
   local out = {}
   for _, child in ipairs({ s.before, s.after }) do
-    local n = M.tree(child, leaf)
+    local n = M.tree(child, leaf, rects)
     if n and n.panes and n.split == dir then
       for _, x in ipairs(n.panes) do
         out[#out + 1] = x
@@ -32,7 +67,14 @@ function M.tree(node, leaf)
   if #out <= 1 then
     return out[1]
   end
-  return { split = dir, panes = out }
+  local g = { split = dir, panes = out }
+  local r = rects[out[1]]
+  for i = 2, #out do
+    r = union(r, rects[out[i]])
+  end
+  rects[g] = r
+  set_sizes(out, dir == "down" and 4 or 3, rects)
+  return g
 end
 
 local function row_cells(row)
@@ -67,6 +109,9 @@ function M.grids(node)
       return node
     end
     for _, x in ipairs(items) do
+      if x.size or row.size then
+        return node
+      end
       cells[#cells + 1] = x
     end
     sizes[i] = #items

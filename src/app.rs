@@ -87,7 +87,7 @@ impl App {
         match start {
             Start::List => {
                 app.here = std::env::var("REX_SESSION").ok().filter(|s| !s.is_empty());
-                if let Some(v) = cache::load() {
+                if let Some(v) = cache::load("list.json") {
                     app.apply_list(&v);
                 }
             }
@@ -165,7 +165,7 @@ impl App {
                 self.listing = false;
                 match result {
                     Ok(v) => {
-                        cache::store(&v);
+                        cache::store("list.json", &v);
                         self.apply_list(&v);
                         self.here = None;
                         if self.order.is_none() {

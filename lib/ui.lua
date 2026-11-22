@@ -46,24 +46,25 @@ function M.new(api, L, settings)
     return found or nil
   end
 
-  local function window_size(sid, block_id)
+  local function window_size(sid, block_id, view)
     local size = block_id and api.term_size(sid, block_id)
     if not (size and size.columns and size.rows) then
       return nil
     end
-    local w, h = layout.block_share(api.view(sid), block_id)
+    local w, h = layout.block_share(view or api.view(sid), block_id)
     if not w or w <= 0 or h <= 0 then
       return nil
     end
     return size.columns / w, size.rows / h
   end
 
-  local function bounds(ctx, rows)
+  local function bounds(ctx, rows, view)
     if settings.ui.bounds then
       return settings.ui.bounds
     end
-    local tiled = ctx.block_id and layout.tiled_block(api.view(ctx.session_id), ctx.block_id)
-    local cols, lines = window_size(ctx.session_id, tiled)
+    view = view or api.view(ctx.session_id)
+    local tiled = ctx.block_id and layout.tiled_block(view, ctx.block_id)
+    local cols, lines = window_size(ctx.session_id, tiled, view)
     if cols == nil then
       return layout.DEFAULT_UI_BOUNDS
     end
@@ -74,13 +75,13 @@ function M.new(api, L, settings)
     local block = L.block({
       flavor = layout.SHELL,
       label = label,
-      options = { command = command, cwd = cwd },
+      options = { shell = "none", command = command, cwd = cwd },
     })
     return api.new_layer(ctx.session_id, nil, block, at, true)
   end
 
-  function ui.open_layer(sid)
-    for _, w in ipairs(api.view(sid).windows or {}) do
+  function ui.open_layer(sid, view)
+    for _, w in ipairs((view or api.view(sid)).windows or {}) do
       for _, layer in ipairs(w.layers or {}) do
         local b = (layer.blocks or {})[1]
         if layer.kind == "floating" and b and b.label == M.LABEL then
@@ -91,16 +92,17 @@ function M.new(api, L, settings)
     return nil
   end
 
-  function ui.show(ctx, args, cwd, rows)
+  function ui.show(ctx, args, cwd, rows, view)
     local bin = ui.bin()
     if bin == nil or ctx.session_id == nil then
       return false
     end
-    local layer = ui.open_layer(ctx.session_id)
+    view = view or api.view(ctx.session_id)
+    local layer = ui.open_layer(ctx.session_id, view)
     if layer then
       api.close_layer(ctx.session_id, layer)
     end
-    local command = { "sh", "-c", LAUNCH, "sh", bin, api.calling_app(ctx) or "" }
+    local command = { "/bin/sh", "-c", LAUNCH, "sh", bin, api.calling_app(ctx) or "" }
     for _, a in ipairs(args or {}) do
       command[#command + 1] = a
     end
@@ -108,7 +110,7 @@ function M.new(api, L, settings)
     if sub == "edit" or sub == "new" or sub == "capture" then
       rows = layout.EDIT_ROWS
     end
-    ui.float(ctx, M.LABEL, command, cwd or settings.home, bounds(ctx, rows or 0))
+    ui.float(ctx, M.LABEL, command, cwd or settings.home, bounds(ctx, rows or 0, view))
     return true
   end
 
@@ -116,12 +118,13 @@ function M.new(api, L, settings)
     if settings.ui.bounds or ctx.session_id == nil then
       return
     end
-    local layer, current = ui.open_layer(ctx.session_id)
+    local view = api.view(ctx.session_id)
+    local layer, current = ui.open_layer(ctx.session_id, view)
     if layer == nil then
       return
     end
-    local tiled = layout.tiled_block(api.view(ctx.session_id), layer)
-    local cols, lines = window_size(ctx.session_id, tiled)
+    local tiled = layout.tiled_block(view, layer)
+    local cols, lines = window_size(ctx.session_id, tiled, view)
     if cols == nil then
       return
     end
@@ -135,20 +138,27 @@ function M.new(api, L, settings)
   end
 
   function ui.toggle(ctx, cwd, rows)
-    if ctx.session_id then
-      local layer = ui.open_layer(ctx.session_id)
+    local view = ctx.session_id and api.view(ctx.session_id) or nil
+    if view then
+      local layer = ui.open_layer(ctx.session_id, view)
       if layer then
         api.close_layer(ctx.session_id, layer)
         return
       end
     end
-    if not ui.show(ctx, {}, cwd, rows) then
+    if type(cwd) == "function" then
+      cwd = cwd()
+    end
+    if type(rows) == "function" then
+      rows = rows()
+    end
+    if not ui.show(ctx, {}, cwd, rows, view) then
       api.open_palette(ctx)
     end
   end
 
   function ui.edit_file(ctx, file)
-    local command = { "sh", "-c", '"${EDITOR:-vi}" "$1" && rex config reload', "sh", file }
+    local command = { "/bin/sh", "-c", '"${EDITOR:-vi}" "$1" && rex config reload', "sh", file }
     ui.float(ctx, M.EDIT_LABEL, command, settings.confdir, { 0.15, 0.1, 0.7, 0.7 })
   end
 

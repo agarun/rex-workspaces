@@ -306,7 +306,9 @@ function M.new(rex, api, ui, settings)
       description = "Open the workspaces window. Without the ui installed, opens the command palette.",
       keywords = "workspace project start stop restart dashboard",
       run = function(ctx)
-        ui.toggle(ctx, focused_dir(ctx), list_rows())
+        ui.toggle(ctx, function()
+          return focused_dir(ctx)
+        end, list_rows)
       end,
     })
 

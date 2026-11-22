@@ -1,9 +1,13 @@
+use crate::cache;
 use ratatui::style::{Color, Modifier, Style};
+use serde_json::{json, Value};
 use std::io::Write;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-#[derive(Clone, Copy)]
+const CACHE_FILE: &str = "theme.json";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Rgb(u8, u8, u8);
 
 impl Rgb {
@@ -18,6 +22,73 @@ impl Rgb {
 
     fn luminance(self) -> f32 {
         (0.299 * self.0 as f32 + 0.587 * self.1 as f32 + 0.114 * self.2 as f32) / 255.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Theme {
+    bg: Rgb,
+    fg: Rgb,
+    dark: bool,
+    supported: bool,
+}
+
+impl Theme {
+    fn from_reply(reply: &str, supported: bool) -> Self {
+        let bg = parse_color(reply, "11");
+        let fg = parse_color(reply, "10");
+        let dark = if reply.contains("?997;2n") {
+            false
+        } else if reply.contains("?997;1n") {
+            true
+        } else {
+            bg.is_none_or(|c| c.luminance() < 0.5)
+        };
+        let bg = bg.unwrap_or(if dark {
+            Rgb(30, 30, 30)
+        } else {
+            Rgb(250, 250, 250)
+        });
+        let fg = fg.unwrap_or(if dark {
+            Rgb(212, 212, 212)
+        } else {
+            Rgb(56, 58, 66)
+        });
+        Self {
+            bg,
+            fg,
+            dark,
+            supported,
+        }
+    }
+
+    fn to_value(self) -> Value {
+        json!({
+            "bg": [self.bg.0, self.bg.1, self.bg.2],
+            "fg": [self.fg.0, self.fg.1, self.fg.2],
+            "dark": self.dark,
+            "supported": self.supported,
+        })
+    }
+
+    fn from_value(v: &Value) -> Option<Self> {
+        let rgb = |key: &str| {
+            let a = v[key].as_array()?;
+            if a.len() != 3 {
+                return None;
+            }
+            Some(Rgb(
+                u8::try_from(a[0].as_u64()?).ok()?,
+                u8::try_from(a[1].as_u64()?).ok()?,
+                u8::try_from(a[2].as_u64()?).ok()?,
+            ))
+        };
+        Some(Self {
+            bg: rgb("bg")?,
+            fg: rgb("fg")?,
+            dark: v["dark"].as_bool()?,
+            supported: v["supported"].as_bool().unwrap_or(true),
+        })
     }
 }
 
@@ -112,7 +183,7 @@ fn device_attributes_seen(buf: &[u8]) -> bool {
     })
 }
 
-fn query() -> String {
+fn query(timeout: Duration) -> (String, bool) {
     use std::os::fd::AsRawFd;
     let mut out = std::io::stdout();
     if out
@@ -120,18 +191,22 @@ fn query() -> String {
         .and_then(|_| out.flush())
         .is_err()
     {
-        return String::new();
+        return (String::new(), false);
     }
     let fd = std::io::stdin().as_raw_fd();
     let started = Instant::now();
     let mut buf = Vec::new();
-    while started.elapsed() < Duration::from_millis(500) && !device_attributes_seen(&buf) {
+    while !device_attributes_seen(&buf) {
+        let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
+            break;
+        };
+        let wait = remaining.as_millis().clamp(1, 50) as i32;
         let mut pfd = libc::pollfd {
             fd,
             events: libc::POLLIN,
             revents: 0,
         };
-        if unsafe { libc::poll(&mut pfd, 1, 50) } <= 0 {
+        if unsafe { libc::poll(&mut pfd, 1, wait) } <= 0 {
             continue;
         }
         let mut chunk = [0u8; 256];
@@ -140,36 +215,37 @@ fn query() -> String {
             buf.extend_from_slice(&chunk[..n as usize]);
         }
     }
-    String::from_utf8_lossy(&buf).into_owned()
+    let supported = device_attributes_seen(&buf);
+    (String::from_utf8_lossy(&buf).into_owned(), supported)
 }
 
-pub fn detect() {
+pub fn init() -> bool {
+    if let Some(theme) = cache::load(CACHE_FILE).and_then(|v| Theme::from_value(&v)) {
+        let _ = PALETTE.set(build(theme.bg, theme.fg, theme.dark));
+        return theme.supported;
+    }
     use ratatui::crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+    let _ = std::io::stdout()
+        .write_all(b"\x1b[?25l")
+        .and_then(|_| std::io::stdout().flush());
     if enable_raw_mode().is_err() {
+        return false;
+    }
+    let (reply, supported) = query(Duration::from_millis(500));
+    let _ = disable_raw_mode();
+    let theme = Theme::from_reply(&reply, supported);
+    cache::store(CACHE_FILE, &theme.to_value());
+    let _ = PALETTE.set(build(theme.bg, theme.fg, theme.dark));
+    false
+}
+
+pub fn refresh() {
+    let (reply, supported) = query(Duration::from_millis(50));
+    if !supported {
         return;
     }
-    let reply = query();
-    let _ = disable_raw_mode();
-    let bg = parse_color(&reply, "11");
-    let fg = parse_color(&reply, "10");
-    let dark = if reply.contains("?997;2n") {
-        false
-    } else if reply.contains("?997;1n") {
-        true
-    } else {
-        bg.is_none_or(|c| c.luminance() < 0.5)
-    };
-    let bg = bg.unwrap_or(if dark {
-        Rgb(30, 30, 30)
-    } else {
-        Rgb(250, 250, 250)
-    });
-    let fg = fg.unwrap_or(if dark {
-        Rgb(212, 212, 212)
-    } else {
-        Rgb(56, 58, 66)
-    });
-    let _ = PALETTE.set(build(bg, fg, dark));
+    let theme = Theme::from_reply(&reply, true);
+    cache::store(CACHE_FILE, &theme.to_value());
 }
 
 pub fn text() -> Style {
@@ -194,4 +270,30 @@ pub fn danger() -> Style {
 
 pub fn bold() -> Style {
     text().add_modifier(Modifier::BOLD)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn theme_round_trips_through_json() {
+        let reply =
+            "\x1b]10;rgb:d4d4/d4d4/d4d4\x1b\\\x1b]11;rgb:1e1e/1e1e/1e1e\x1b\\\x1b[?997;1n\x1b[?62c";
+        let theme = Theme::from_reply(reply, true);
+        assert_eq!(theme.bg, Rgb(0x1e, 0x1e, 0x1e));
+        assert_eq!(theme.fg, Rgb(0xd4, 0xd4, 0xd4));
+        assert!(theme.dark);
+        assert!(theme.supported);
+        assert_eq!(Theme::from_value(&theme.to_value()), Some(theme));
+    }
+
+    #[test]
+    fn light_theme_from_dec_997() {
+        let reply = "\x1b[?997;2n\x1b[?62c";
+        let theme = Theme::from_reply(reply, true);
+        assert!(!theme.dark);
+        assert_eq!(theme.bg, Rgb(250, 250, 250));
+        assert_eq!(theme.fg, Rgb(56, 58, 66));
+    }
 }

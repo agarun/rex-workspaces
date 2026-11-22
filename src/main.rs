@@ -96,9 +96,7 @@ fn main() -> std::io::Result<()> {
         std::process::exit(code);
     }
     let start = start_from_args(&args);
-    print!("\x1b[?25l");
-    let _ = std::io::Write::flush(&mut stdout());
-    theme::detect();
+    let refresh_theme = theme::init();
     let mut terminal = ratatui::init();
     let _restore = Restore;
     let flags = PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES);
@@ -114,6 +112,9 @@ fn main() -> std::io::Result<()> {
                 _ => {}
             }
         }
+    }
+    if refresh_theme {
+        theme::refresh();
     }
     Ok(())
 }

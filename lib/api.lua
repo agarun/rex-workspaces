@@ -140,6 +140,9 @@ function M.new(rex)
     if not (ctx and ctx.client_id) then
       return nil
     end
+    if ctx.origin == "key" or ctx.origin == "palette" then
+      return ctx.client_id
+    end
     local r = rex.call("client.list", { kinds = { "app" } })
     for _, c in ipairs((r and r.clients) or {}) do
       if c.client_id == ctx.client_id then

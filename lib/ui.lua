@@ -8,7 +8,8 @@ M.BIN = "rex-workspaces"
 M.INSTALL_URL = "https://raw.githubusercontent.com/agarun/rex-workspaces/main/install.sh"
 
 local LAUNCH = ([[
-local_bin=$1; shift
+local_bin=$1; client=$2; shift 2
+[ -n "$client" ] && export REX_CLIENT="$client"
 home_bin="${REX_WORKSPACES_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/rex/rex-workspaces}/bin/rex-workspaces"
 for bin in "$local_bin" "$home_bin"; do
   [ -x "$bin" ] && exec "$bin" "$@"
@@ -98,7 +99,7 @@ function M.new(api, L, settings)
     if layer then
       api.close_layer(ctx.session_id, layer)
     end
-    local command = { "sh", "-c", LAUNCH, "sh", bin }
+    local command = { "sh", "-c", LAUNCH, "sh", bin, api.calling_app(ctx) or "" }
     for _, a in ipairs(args or {}) do
       command[#command + 1] = a
     end

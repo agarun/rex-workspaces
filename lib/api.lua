@@ -136,6 +136,19 @@ function M.new(rex)
     return false
   end
 
+  function api.calling_app(ctx)
+    if not (ctx and ctx.client_id) then
+      return nil
+    end
+    local r = rex.call("client.list", { kinds = { "app" } })
+    for _, c in ipairs((r and r.clients) or {}) do
+      if c.client_id == ctx.client_id then
+        return c.client_id
+      end
+    end
+    return nil
+  end
+
   function api.select(sid, ctx)
     if not has_app(ctx) then
       return false

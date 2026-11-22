@@ -109,7 +109,6 @@ function M.missing(api, list, it, name)
     .. path.shell_quote(it.worktree)
 end
 
--- Moves each server and pane that names a worktree into that worktree of its own repository.
 function M.apply(api, ws, home)
   if not M.uses(ws) then
     return ws

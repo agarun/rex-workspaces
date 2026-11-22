@@ -4,7 +4,7 @@ local M = {}
 
 M.DEFAULT_KEY = "cmd+o"
 
-local KNOWN = { files = true, keys = true, palette = true, ui = true }
+local KNOWN = { files = true, folders = true, keys = true, palette = true, ui = true }
 
 local function unknown(opts)
   local names = {}
@@ -50,15 +50,20 @@ local function default_files(confdir, find)
   return files
 end
 
-local function expand(entries, home, find)
+local function expand(file_entries, folder_entries, home, find)
   local files, folders = {}, {}
-  for _, entry in ipairs(entries) do
+  for _, entry in ipairs(file_entries or {}) do
     entry = path.expand(entry, home)
     if entry:match("%.json$") or not add_folder(files, entry, find) then
       files[#files + 1] = entry
     else
       folders[entry] = true
     end
+  end
+  for _, entry in ipairs(folder_entries or {}) do
+    entry = path.expand(entry, home)
+    add_folder(files, entry, find)
+    folders[entry] = true
   end
   return files, folders
 end
@@ -70,12 +75,12 @@ function M.resolve(opts, module_dir, home, find, state_home)
   end
   local confdir = path.dirname(module_dir)
   local files, folders
-  if opts.files then
-    files, folders = expand(opts.files, home, find)
+  if opts.files or opts.folders then
+    files, folders = expand(opts.files, opts.folders, home, find)
   else
     files, folders = default_files(confdir, find), {}
   end
-  local first = path.expand((opts.files or {})[1] or (confdir .. "/workspaces.json"), home)
+  local first = path.expand((opts.files or {})[1] or (opts.folders or {})[1] or (confdir .. "/workspaces.json"), home)
   local ui = opts.ui or {}
   local settings = {
     home = home,

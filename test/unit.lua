@@ -318,6 +318,25 @@ test("options: a files entry that is a folder is read as a folder", function()
   eq(s.primary, HOME .. "/w.jsonc")
 end)
 
+test("options: folders can be set alone or alongside files", function()
+  local find = function(dir)
+    if dir == HOME .. "/ws" then
+      return { HOME .. "/ws/prod/api.json", HOME .. "/ws/qa.json" }
+    end
+    return nil
+  end
+  local s, unknown = options.resolve({ folders = { "~/ws" } }, "/m", HOME, find)
+  eq(#unknown, 0)
+  eq(s.files, { HOME .. "/ws/prod/api.json", HOME .. "/ws/qa.json" })
+  eq(s.primary, HOME .. "/ws/workspaces.json")
+  s = options.resolve({ files = { "~/main.json" }, folders = { "~/ws" } }, "/m", HOME, find)
+  eq(s.files, { HOME .. "/main.json", HOME .. "/ws/prod/api.json", HOME .. "/ws/qa.json" })
+  eq(s.primary, HOME .. "/main.json")
+  s = options.resolve({ folders = { "~/missing" } }, "/m", HOME, find)
+  eq(s.files, {})
+  eq(s.primary, HOME .. "/missing/workspaces.json")
+end)
+
 test("options: defaults, keys, unknown names", function()
   local s, unknown = options.resolve(nil, "/c/rex/rex-workspaces", HOME)
   eq(s.files, { "/c/rex/workspaces.json" })

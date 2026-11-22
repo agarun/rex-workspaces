@@ -347,6 +347,7 @@ name and session, so both can run at once, but note that servers that use a fixe
 ```lua
 require("rex-workspaces").setup{
   files = { "~/dotfiles/workspaces.json", "~/dotfiles/workspaces.local.json" },
+  folders = { "~/dotfiles/workspaces" },
   keys = { open = "cmd+o" },   -- keys = false: no shortcut
   palette = true,              -- false: no palette entry for each workspace
   ui = {
@@ -381,9 +382,10 @@ Each file has the same shape as `workspaces.json`, with a top-level `"workspaces
 Files and folders whose names start with `.` are skipped. After adding or removing a file, run
 `rex config reload`.
 
-Setting `files` replaces these defaults. An entry that is a folder is read the same way as the
-`workspaces` folder. Any other entry is a file. Rex-workspaces reads `files`
-in order. If two files have a workspace with the same name, the later file wins.
+Setting `files`, `folders`, or both replaces these defaults. Each entry in `folders` (and any
+entry in `files` that is a folder) is read the same way as the `workspaces` folder. Rex-workspaces
+reads `files` in order, then `folders` in order. If two files have a workspace with the same name,
+the later file wins.
 
 To share workspaces across machines but keep some on one machine only, list more than one
 file, as in the example above. When you save a workspace, it goes back to the file it came

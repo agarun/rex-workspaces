@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1
+
+### Added
+
+- `folders` setup option to list workspace folders alongside or instead of `files`.
+
+### Changed
+
+- Cache the detected terminal theme in `~/.cache/rex-workspaces/theme.json` and refresh it on close so the Workspaces window draws immediately on open.
+- Reduce redundant Rex RPC calls and skip spawning a login shell when opening, closing, or resizing the Workspaces window.
+
 ## 0.3.0
 
 ### Added

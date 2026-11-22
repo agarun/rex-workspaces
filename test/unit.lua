@@ -414,12 +414,14 @@ test("block share multiplies the layer bounds by the pane's rect", function()
       {
         layers = {
           { kind = "tiled", layout = { block_id = "u" } },
-          { kind = "floating", layer_id = "L" },
+          { kind = "floating", layer_id = "L", layout = { block_id = "m" } },
         },
       },
     },
   }
   eq(layout.tiled_block(with_float, "L"), "u")
+  eq(layout.tiled_block(with_float, "m"), "u")
+  eq(layout.tiled_block(with_float, "t"), "t")
   eq(layout.tiled_block(with_float, "nope"), nil)
 end)
 

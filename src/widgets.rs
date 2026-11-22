@@ -100,7 +100,7 @@ pub fn draw_button(f: &mut Frame, rect: Rect, b: &Button, hovered: bool, focus: 
         spans.push(Span::styled(format!("  {}", b.key), Style::new().fg(key)));
     }
     let inner = Rect::new(rect.x + 1, rect.y, rect.width.saturating_sub(1), 1);
-    f.render_widget(Paragraph::new(Line::from(spans)), inner);
+    f.render_widget(Paragraph::new(Line::from(spans)), clip(f, inner));
 }
 
 pub fn button_rows(area: Rect, buttons: &[Button]) -> u16 {
@@ -146,7 +146,7 @@ pub fn button_row(
 }
 
 pub fn fill(f: &mut Frame, rect: Rect, bg: Color) {
-    f.render_widget(Block::new().style(Style::new().bg(bg)), rect);
+    f.render_widget(Block::new().style(Style::new().bg(bg)), clip(f, rect));
 }
 
 pub fn line(f: &mut Frame, area: Rect, y: u16, content: Line) -> Option<Rect> {
@@ -154,7 +154,7 @@ pub fn line(f: &mut Frame, area: Rect, y: u16, content: Line) -> Option<Rect> {
         return None;
     }
     let rect = Rect::new(area.x, area.y + y, area.width, 1);
-    f.render_widget(Paragraph::new(content), rect);
+    f.render_widget(Paragraph::new(content), clip(f, rect));
     Some(rect)
 }
 
@@ -166,7 +166,10 @@ pub fn link(f: &mut Frame, rect: Rect, label: &str, color: Color, hovered: bool)
     } else {
         Style::new().fg(color)
     };
-    f.render_widget(Paragraph::new(Span::styled(label.to_string(), style)), rect);
+    f.render_widget(
+        Paragraph::new(Span::styled(label.to_string(), style)),
+        clip(f, rect),
+    );
 }
 
 pub fn hint(text: &str) -> Line<'static> {
@@ -187,6 +190,10 @@ pub fn hint(text: &str) -> Line<'static> {
         }
     }
     Line::from(spans)
+}
+
+pub fn clip(f: &Frame, rect: Rect) -> Rect {
+    rect.intersection(f.area())
 }
 
 pub fn padded(area: Rect) -> Rect {

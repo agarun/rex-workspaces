@@ -74,13 +74,23 @@ local function first_block(node)
   return split and (first_block(split.before) or first_block(split.after))
 end
 
-function M.tiled_block(view, layer_id)
+local function contains(node, block_id)
+  if node == nil then
+    return false
+  end
+  local split = node.split
+  return node.block_id == block_id
+    or (split ~= nil and (contains(split.before, block_id) or contains(split.after, block_id)))
+end
+
+function M.tiled_block(view, id)
   for _, w in ipairs(view.windows or {}) do
     local tiled, has = nil, false
     for _, layer in ipairs(w.layers or {}) do
       if layer.kind == "tiled" then
         tiled = first_block(layer.layout)
-      elseif layer.layer_id == layer_id then
+      end
+      if layer.layer_id == id or contains(layer.layout, id) then
         has = true
       end
     end

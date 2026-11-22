@@ -62,7 +62,8 @@ function M.new(api, L, settings)
     if settings.ui.bounds then
       return settings.ui.bounds
     end
-    local cols, lines = window_size(ctx.session_id, ctx.block_id)
+    local tiled = ctx.block_id and layout.tiled_block(api.view(ctx.session_id), ctx.block_id)
+    local cols, lines = window_size(ctx.session_id, tiled)
     if cols == nil then
       return layout.DEFAULT_UI_BOUNDS
     end

@@ -52,6 +52,7 @@ pub struct App {
     loaded: bool,
     button_focus: Option<usize>,
     filter: Option<String>,
+    here: Option<String>,
 }
 
 impl App {
@@ -78,10 +79,12 @@ impl App {
             loaded: false,
             button_focus: None,
             filter: None,
+            here: None,
         };
 
         match start {
             Start::List => {
+                app.here = std::env::var("REX_SESSION").ok().filter(|s| !s.is_empty());
                 if let Some(v) = cache::load() {
                     app.apply_list(&v);
                 }
@@ -162,6 +165,7 @@ impl App {
                     Ok(v) => {
                         cache::store(&v);
                         self.apply_list(&v);
+                        self.here = None;
                         if let Some(name) = self.select_after_list.take() {
                             self.select(&name);
                         }
@@ -284,6 +288,11 @@ impl App {
             .unwrap_or_default();
         if let Some(home) = v["home"].as_str() {
             self.home = home.to_string();
+        }
+        if let Some(sid) = &self.here {
+            if let Some(i) = self.workspaces.iter().position(|w| w["session_id"] == *sid) {
+                self.selected = i;
+            }
         }
         self.selected = self.selected.min(self.workspaces.len().saturating_sub(1));
         self.keep_selection_visible();
@@ -851,6 +860,58 @@ fn non_empty(s: String, fallback: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample() -> Value {
+        let ws = |name: &str, running: bool| {
+            json!({
+                "name": name, "root": "/p/x", "running": running, "frozen": false, "snoozed": false,
+                "servers": [
+                    { "cmd": "make dev-api", "label": "api", "open": running, "up": running },
+                    { "cmd": "pnpm dev", "label": "core", "open": false, "up": false }
+                ],
+                "servers_up": 0, "stops_panes": false, "tabs": 1, "spec": { "root": "/p/x" }
+            })
+        };
+        json!({ "workspaces": [ws("one", false), ws("two", true), ws("three", false)] })
+    }
+
+    #[test]
+    fn renders_at_any_size() {
+        use ratatui::{backend::TestBackend, Terminal};
+        let mut app = App::new(Start::List);
+        app.apply_list(&sample());
+        for selected in 0..3 {
+            app.selected = selected;
+            for w in 0..70 {
+                for h in 0..30 {
+                    let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+                    t.draw(|f| app.render(f)).unwrap();
+                }
+            }
+        }
+        let spec = json!({ "root": "/p/x", "servers": [{ "label": "api", "cmd": "make" }] });
+        app.screen = Screen::Edit(Box::new(Editor::new(
+            "one".into(),
+            Some("one".into()),
+            spec,
+        )));
+        for w in 0..70 {
+            for h in 0..40 {
+                let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
+                t.draw(|f| app.render(f)).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn selects_the_workspace_of_this_session() {
+        let mut app = App::new(Start::Edit("x".into()));
+        let mut v = sample();
+        v["workspaces"][2]["session_id"] = json!("session:here");
+        app.here = Some("session:here".into());
+        app.apply_list(&v);
+        assert_eq!(app.selected, 2);
+    }
 
     #[test]
     fn found_message_only_when_something_was_found() {
